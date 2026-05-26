@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+receptionist.db
+*.db
+generate_pdf.py
+AI_Receptionist_Proposal.pdf
