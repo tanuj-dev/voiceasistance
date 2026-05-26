@@ -149,6 +149,18 @@ def cancel_booking(booking_id):
         conn.commit()
 
 
+def get_booking_by_phone(business_id, phone):
+    """Return the most recent confirmed booking for a given phone number."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM bookings
+               WHERE business_id = ? AND customer_phone = ? AND status = 'confirmed'
+               ORDER BY id DESC LIMIT 1""",
+            (business_id, phone)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def get_all_bookings(business_id=None, status=None, search=None):
     """Fetch bookings with optional filters. Returns newest first."""
     query = "SELECT * FROM bookings WHERE 1=1"

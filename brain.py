@@ -85,6 +85,21 @@ TEMPLATES = {
         "I can help with that. Could you give me your name and the date of your appointment?",
         "Sure, I can cancel that for you. What's your name and appointment date?",
     ],
+    "cancel_ask_phone": [
+        "I can help cancel that. What's the phone number on the booking?",
+        "Sure, I'll cancel that for you. Could you give me the phone number used for the booking?",
+        "No problem. What phone number was the appointment booked under?",
+    ],
+    "cancel_confirmed": [
+        "Done! Your appointment has been cancelled. Booking ID {booking_id} is now cancelled. Is there anything else I can help you with?",
+        "Your booking {booking_id} has been successfully cancelled. Have a good day!",
+        "Cancelled! Booking {booking_id} has been removed. Hope to see you again soon!",
+    ],
+    "no_booking_found": [
+        "I couldn't find any upcoming appointments with that number. Could you double-check the phone number?",
+        "I don't see any confirmed bookings under that number. Is it possible it was booked under a different number?",
+        "Sorry, I couldn't locate a booking for that phone number. Please check and try again.",
+    ],
     "info": [
         "We offer {services}. Our hours are {start_time} to {end_time}, {days}. Can I book an appointment for you?",
         "Our services include {services}. We're open {days} from {start_time} to {end_time}. Would you like to book?",

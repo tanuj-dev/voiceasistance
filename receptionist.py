@@ -55,30 +55,6 @@ class Receptionist:
         """Opening greeting — no user input yet."""
         return self._r("greeting")
 
-    def process(self, user_text):
-        """Process one turn of caller speech. Returns response string."""
-
-        # Urgency check first
-        if any(w in user_text.lower() for w in URGENT_WORDS):
-            self.state = "done"
-            return self._r("urgency")
-
-        # Extract structured data from what the caller said
-        extracted = brain.extract(user_text, self.business["services"])
-        c = self.collected
-
-        for key in ("intent", "service", "name"):
-            if extracted.get(key):
-                c[key] = extracted[key]
-        if extracted.get("date"):
-            c["date"] = extracted["date"]
-        if extracted.get("time"):
-            c["time"] = extracted["time"]
-        if extracted.get("phone"):
-            c["phone"] = extracted["phone"]
-
-        return self._route()
-
     # ── State router ──────────────────────────────────────────────────────
 
     def _route(self):
@@ -91,7 +67,17 @@ class Receptionist:
             return self._r("info")
 
         if c["intent"] == "cancel":
-            return self._r("cancel_ask")
+            # Step 1: collect phone number
+            if not c["phone"]:
+                return self._r("cancel_ask_phone")
+            # Step 2: look up the booking
+            booking = database.get_booking_by_phone(self.business_id, c["phone"])
+            if not booking:
+                return self._r("no_booking_found")
+            # Step 3: cancel it and confirm
+            database.cancel_booking(booking["id"])
+            self.state = "done"
+            return self._r("cancel_confirmed", booking_id=booking["id"])
 
         if c["intent"] in ("book", "reschedule"):
             return self._handle_booking()
