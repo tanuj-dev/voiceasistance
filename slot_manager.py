@@ -17,6 +17,10 @@ def get_available_slots(business_id, date_str):
     if day_name not in business["working_days"]:
         return []
 
+    # Block leave / holiday days
+    if database.is_leave_day(business_id, date_str):
+        return []
+
     start = datetime.strptime(f"{date_str} {business['start_time']}", "%Y-%m-%d %H:%M")
     end = datetime.strptime(f"{date_str} {business['end_time']}", "%Y-%m-%d %H:%M")
     duration = timedelta(minutes=business["slot_duration"])

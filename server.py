@@ -8,7 +8,7 @@ Webhook URLs to set in Twilio:
 """
 
 import os
-from flask import Flask, request, Response, jsonify, send_file
+from flask import Flask, request, Response, jsonify, send_file, session, redirect, url_for
 from flask_cors import CORS
 from twilio.twiml.voice_response import VoiceResponse, Gather
 from twilio.jwt.access_token import AccessToken
@@ -16,11 +16,74 @@ from twilio.jwt.access_token.grants import VoiceGrant
 from dotenv import load_dotenv
 import database
 from receptionist import Receptionist
+from functools import wraps
+import hmac, hashlib, json, base64
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production-please")
+CORS(app, supports_credentials=True)
+
+
+# ── Token utilities ──────────────────────────────────────────────────────
+
+def _make_token(payload: dict) -> str:
+    """Sign a JSON payload and return a token string."""
+    secret = os.getenv("SECRET_KEY", "default-secret")
+    b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    sig = hmac.new(secret.encode(), b64.encode(), hashlib.sha256).hexdigest()
+    return f"{b64}.{sig}"
+
+
+def _verify_token(token: str):
+    """Return payload dict if valid, else None."""
+    try:
+        b64, sig = token.rsplit(".", 1)
+        secret = os.getenv("SECRET_KEY", "default-secret")
+        expected = hmac.new(secret.encode(), b64.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        return json.loads(base64.urlsafe_b64decode(b64).decode())
+    except Exception:
+        return None
+
+
+def _get_bearer():
+    auth = request.headers.get("Authorization", "")
+    return auth[7:] if auth.startswith("Bearer ") else None
+
+
+def admin_required(f):
+    """Admin: session OR bearer token with role=admin."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if session.get("admin_logged_in"):
+            return f(*args, **kwargs)
+        token = _get_bearer()
+        if token:
+            payload = _verify_token(token)
+            if payload and payload.get("role") == "admin":
+                return f(*args, **kwargs)
+        if request.path.startswith("/admin/api"):
+            return jsonify({"error": "Unauthorized"}), 401
+        return redirect(url_for("admin_login"))
+    return decorated
+
+
+def client_required(f):
+    """Client: bearer token with role=client. Injects business_id into kwargs."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = _get_bearer()
+        if token:
+            payload = _verify_token(token)
+            if payload and payload.get("role") == "client":
+                kwargs["_business_id"] = payload["business_id"]
+                kwargs["_business_name"] = payload["business_name"]
+                return f(*args, **kwargs)
+        return jsonify({"error": "Unauthorized"}), 401
+    return decorated
 
 # In-memory store: { call_sid: Receptionist }
 active_calls = {}
@@ -205,6 +268,215 @@ def token():
 def phone():
     """Serve the browser phone UI."""
     return send_file("browser_phone.html")
+
+
+# ------------------------------------------------------------------ #
+#  Admin Dashboard                                                    #
+# ------------------------------------------------------------------ #
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    error = ""
+    if request.method == "POST":
+        pwd = request.form.get("password", "")
+        admin_pwd = os.getenv("ADMIN_PASSWORD", "admin123")
+        if pwd == admin_pwd:
+            session["admin_logged_in"] = True
+            return redirect(url_for("admin_dashboard"))
+        error = "Wrong password. Try again."
+
+    with open("admin_login.html", "r") as f:
+        html = f.read()
+    if error:
+        html = html.replace("<!--ERROR-->", f'<p class="error">{error}</p>')
+    return html, 200, {"Content-Type": "text/html"}
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.clear()
+    return redirect(url_for("admin_login"))
+
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    with open("admin.html", "r") as f:
+        return f.read(), 200, {"Content-Type": "text/html"}
+
+
+@app.route("/admin/api/login", methods=["POST"])
+def api_admin_login():
+    data = request.get_json() or {}
+    pwd  = data.get("password", "")
+    if pwd == os.getenv("ADMIN_PASSWORD", "admin123"):
+        token = _make_token({"role": "admin"})
+        return jsonify({"token": token, "role": "admin"})
+    return jsonify({"error": "Wrong password"}), 401
+
+
+# ── Client login & API ────────────────────────────────────────────────────
+
+@app.route("/client/api/login", methods=["POST"])
+def api_client_login():
+    data        = request.get_json() or {}
+    business_id = data.get("business_id", "").strip()
+    password    = data.get("password", "").strip()
+
+    biz = database.get_business(business_id)
+    if not biz:
+        return jsonify({"error": "Business not found"}), 404
+    if not biz.get("client_password") or biz["client_password"] != password:
+        return jsonify({"error": "Wrong password"}), 401
+
+    token = _make_token({
+        "role":          "client",
+        "business_id":   biz["id"],
+        "business_name": biz["name"],
+    })
+    return jsonify({"token": token, "role": "client",
+                    "business_id": biz["id"], "business_name": biz["name"]})
+
+
+@app.route("/client/api/stats", methods=["GET"])
+@client_required
+def client_stats(_business_id=None, _business_name=None):
+    return jsonify(database.get_dashboard_stats(_business_id))
+
+
+@app.route("/client/api/bookings", methods=["GET"])
+@client_required
+def client_bookings(_business_id=None, _business_name=None):
+    status = request.args.get("status")
+    search = request.args.get("search")
+    return jsonify(database.get_all_bookings(_business_id, status or None, search or None))
+
+
+@app.route("/client/api/schedule", methods=["GET"])
+@client_required
+def client_get_schedule(_business_id=None, _business_name=None):
+    biz = database.get_business(_business_id)
+    if not biz:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify({
+        "working_days":  biz["working_days"],
+        "start_time":    biz["start_time"],
+        "end_time":      biz["end_time"],
+        "slot_duration": biz["slot_duration"],
+        "services":      biz["services"],
+    })
+
+
+@app.route("/client/api/schedule", methods=["PUT"])
+@client_required
+def client_update_schedule(_business_id=None, _business_name=None):
+    data          = request.get_json() or {}
+    working_days  = data.get("working_days", [])
+    start_time    = data.get("start_time", "09:00")
+    end_time      = data.get("end_time",   "18:00")
+    slot_duration = int(data.get("slot_duration", 30))
+    database.update_business_schedule(_business_id, working_days, start_time, end_time, slot_duration)
+    return jsonify({"success": True})
+
+
+@app.route("/client/api/leaves", methods=["GET"])
+@client_required
+def client_get_leaves(_business_id=None, _business_name=None):
+    return jsonify(database.get_leaves(_business_id))
+
+
+@app.route("/client/api/leaves", methods=["POST"])
+@client_required
+def client_add_leave(_business_id=None, _business_name=None):
+    data   = request.get_json() or {}
+    date   = data.get("date", "").strip()
+    reason = data.get("reason", "").strip()
+    if not date:
+        return jsonify({"error": "Date is required"}), 400
+    database.add_leave(_business_id, date, reason)
+    return jsonify({"success": True})
+
+
+@app.route("/client/api/leaves/<int:leave_id>", methods=["DELETE"])
+@client_required
+def client_delete_leave(leave_id, _business_id=None, _business_name=None):
+    database.delete_leave(leave_id, _business_id)
+    return jsonify({"success": True})
+
+
+@app.route("/client/api/bookings/<int:booking_id>/cancel", methods=["POST"])
+@client_required
+def client_cancel_booking(booking_id, _business_id=None, _business_name=None):
+    # Make sure the booking belongs to this client's business
+    bookings = database.get_all_bookings(_business_id)
+    if not any(b["id"] == booking_id for b in bookings):
+        return jsonify({"error": "Not allowed"}), 403
+    database.cancel_booking(booking_id)
+    return jsonify({"success": True})
+
+
+@app.route("/admin/api/businesses", methods=["GET"])
+@admin_required
+def api_businesses():
+    return jsonify(database.get_all_businesses())
+
+
+@app.route("/admin/api/businesses", methods=["POST"])
+@admin_required
+def api_create_business():
+    data = request.get_json() or {}
+
+    business_id     = data.get("id", "").strip().lower()
+    name            = data.get("name", "").strip()
+    business_type   = data.get("type", "").strip()
+    services        = data.get("services", [])
+    working_days    = data.get("working_days", [])
+    start_time      = data.get("start_time", "09:00")
+    end_time        = data.get("end_time",   "18:00")
+    slot_duration   = int(data.get("slot_duration", 30))
+    timezone        = data.get("timezone",  "Asia/Kolkata")
+    contact_email   = data.get("contact_email", "")
+    client_password = data.get("client_password", "")
+
+    if not business_id:
+        return jsonify({"error": "Business ID is required"}), 400
+    if not name:
+        return jsonify({"error": "Business name is required"}), 400
+    if database.get_business(business_id):
+        return jsonify({"error": f"Business ID '{business_id}' already exists"}), 409
+
+    database.add_business(
+        business_id, name, business_type, services, working_days,
+        start_time, end_time, slot_duration, timezone, contact_email
+    )
+    if client_password:
+        database.set_client_password(business_id, client_password)
+
+    return jsonify({"success": True, "id": business_id, "name": name})
+
+
+@app.route("/admin/api/stats", methods=["GET"])
+@admin_required
+def api_stats():
+    biz_id = request.args.get("business_id")
+    return jsonify(database.get_dashboard_stats(biz_id or None))
+
+
+@app.route("/admin/api/bookings", methods=["GET"])
+@admin_required
+def api_bookings():
+    biz_id = request.args.get("business_id")
+    status = request.args.get("status")
+    search = request.args.get("search")
+    bookings = database.get_all_bookings(biz_id or None, status or None, search or None)
+    return jsonify(bookings)
+
+
+@app.route("/admin/api/bookings/<int:booking_id>/cancel", methods=["POST"])
+@admin_required
+def api_cancel_booking(booking_id):
+    database.cancel_booking(booking_id)
+    return jsonify({"success": True})
 
 
 if __name__ == "__main__":
