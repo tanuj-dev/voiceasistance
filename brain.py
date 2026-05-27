@@ -295,13 +295,34 @@ def extract_date(text):
 def extract_time(text):
     t = text.lower()
 
-    # "10:30 am" / "10:30am" / "10 am" / "10am"
-    m = re.search(r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b', t)
+    # Standard: "10:30 am" / "10:30am" / "10 am" / "10am"
+    m = re.search(r'\b(\d{1,2}):(\d{2})\s*(am|pm)\b', t)
     if m:
         hour   = int(m.group(1))
-        minute = int(m.group(2)) if m.group(2) else 0
+        minute = int(m.group(2))
         period = m.group(3).upper()
         return f"{hour:02d}:{minute:02d} {period}"
+
+    # "10 am" / "10am" (no minutes)
+    m = re.search(r'\b(\d{1,2})\s*(am|pm)\b', t)
+    if m:
+        hour   = int(m.group(1))
+        minute = 0
+        period = m.group(2).upper()
+        return f"{hour:02d}:{minute:02d} {period}"
+
+    # Compact spoken format: "130pm" / "945am" / "130 pm" / "945 am"
+    # Whisper often transcribes "one thirty pm" as "130pm" or "130 pm"
+    m = re.search(r'\b(\d{3,4})\s*(am|pm)\b', t)
+    if m:
+        digits = m.group(1)
+        period = m.group(2).upper()
+        if len(digits) == 3:
+            hour, minute = int(digits[0]), int(digits[1:3])
+        else:  # 4 digits e.g. "1230"
+            hour, minute = int(digits[:2]), int(digits[2:4])
+        if 1 <= hour <= 12 and 0 <= minute < 60:
+            return f"{hour:02d}:{minute:02d} {period}"
 
     # 24-hour "14:30"
     m = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', text)
