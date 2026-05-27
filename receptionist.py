@@ -40,16 +40,39 @@ class Receptionist:
         }
         self.available_slots = []
 
+    # ── booking word based on business type ──────────────────────────────
+    def _booking_word(self):
+        """Returns the right word for a booking based on business type."""
+        _WORD_MAP = {
+            "dental":   "appointment",
+            "medical":  "appointment",
+            "clinic":   "appointment",
+            "doctor":   "appointment",
+            "physio":   "session",
+            "gym":      "session",
+            "fitness":  "session",
+            "yoga":     "session",
+            "pilates":  "session",
+            "salon":    "booking",
+            "barber":   "booking",
+            "spa":      "booking",
+            "beauty":   "booking",
+            "hotel":    "reservation",
+        }
+        btype = self.business.get("type", "").lower()
+        return _WORD_MAP.get(btype, "appointment")
+
     # ── shortcut to brain.reply with business fields pre-filled ──────────
     def _r(self, key, **extra):
         b = self.business
         return brain.reply(
             key,
-            business  = b["name"],
-            services  = ", ".join(b["services"]),
-            start_time= b["start_time"],
-            end_time  = b["end_time"],
-            days      = ", ".join(b["working_days"]),
+            business     = b["name"],
+            services     = ", ".join(b["services"]),
+            start_time   = b["start_time"],
+            end_time     = b["end_time"],
+            days         = ", ".join(b["working_days"]),
+            booking_word = self._booking_word(),
             **extra
         )
 
