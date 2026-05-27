@@ -98,7 +98,7 @@
   async function init() {
     try {
       setStatus('Getting token...');
-      const res  = await fetch('http://localhost:5001/token');
+      const res  = await fetch('/token');
       const data = await res.json();
       log('Token received');
 
