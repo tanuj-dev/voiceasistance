@@ -41,7 +41,8 @@ def book_appointment(business_id, date_str, time_str,
     """Book a slot. Returns booking ID or None if slot is taken."""
     for fmt in ("%I:%M %p", "%I:%M%p", "%H:%M"):
         try:
-            time_obj = datetime.strptime(time_str.strip().upper(), fmt.upper())
+            # Only uppercase the input string, NOT the format (%p must stay lowercase)
+            time_obj = datetime.strptime(time_str.strip().upper(), fmt)
             appointment_datetime = f"{date_str} {time_obj.strftime('%H:%M')}"
             break
         except ValueError:
