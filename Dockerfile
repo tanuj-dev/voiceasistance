@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Railway injects $PORT at runtime
-CMD gunicorn server:app --bind 0.0.0.0:${PORT:-5001} --workers 2 --timeout 60
+CMD ["sh", "-c", "gunicorn server:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 60"]
