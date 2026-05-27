@@ -86,6 +86,9 @@ def client_required(f):
         return jsonify({"error": "Unauthorized"}), 401
     return decorated
 
+# Ensure all tables exist (safe to run on every startup)
+database.create_tables()
+
 # In-memory store: { call_sid: Receptionist }
 active_calls = {}
 
