@@ -21,11 +21,14 @@ def _day_name(date_str):
 
 
 class Receptionist:
-    def __init__(self, business_id):
+    def __init__(self, business_id, caller_phone=None):
         self.business = database.get_business(business_id)
         if not self.business:
             raise ValueError(f"Business '{business_id}' not found in database.")
-        self.business_id = business_id
+        self.business_id  = business_id
+        # caller_phone is the real E.164 number from Twilio/Exotel (e.g. +12394238893)
+        # Used to send SMS — the spoken phone is used for DB lookup only
+        self.caller_phone = caller_phone
         self.state = "greeting"
         self.collected = {
             "intent":  None,
@@ -84,6 +87,12 @@ class Receptionist:
                 owner_email    = self.business.get("contact_email", ""),
                 customer_phone = c["phone"],
                 booking_id     = booking["id"],
+            )
+            # SMS confirmation to customer
+            notifier.send_sms_cancellation(
+                to_phone      = self.caller_phone,
+                business_name = self.business["name"],
+                booking_id    = booking["id"],
             )
             return self._r("cancel_confirmed", booking_id=booking["id"])
 
@@ -191,6 +200,16 @@ class Receptionist:
                 date_str       = _day_name(c["date"]),
                 time_str       = c["time"],
                 booking_id     = booking_id,
+            )
+            # SMS confirmation to customer (uses real caller number from Twilio)
+            notifier.send_sms_confirmation(
+                to_phone      = self.caller_phone,
+                business_name = self.business["name"],
+                customer_name = c["name"],
+                service       = c["service"],
+                date_str      = _day_name(c["date"]),
+                time_str      = c["time"],
+                booking_id    = booking_id,
             )
             return self._r(
                 "booked",

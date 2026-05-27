@@ -163,7 +163,7 @@ def answer():
         )
 
     try:
-        receptionist = Receptionist(business_id)
+        receptionist = Receptionist(business_id, caller_phone=from_number)
         active_calls[call_sid] = receptionist
         greeting = receptionist.greeting()
         print(f"[{call_sid}] Assistant: {greeting}")

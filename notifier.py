@@ -1,18 +1,23 @@
 """
-notifier.py — Email notifications via Gmail SMTP.
+notifier.py — Email (Gmail SMTP) + SMS (Twilio) notifications.
 
-Two flows:
-  1. notify_owner()              → New booking alert to business owner
-  2. notify_owner_cancellation() → Cancellation alert to business owner
-  3. send_confirmation()         → Booking confirmation to customer (when email collected)
+Email flows  (business owner gets these):
+  1. notify_owner()              → New booking alert
+  2. notify_owner_cancellation() → Cancellation alert
 
-Setup in .env:
+SMS flows  (customer gets these — sent to their real phone number):
+  3. send_sms_confirmation()     → Booking confirmed SMS to customer
+  4. send_sms_cancellation()     → Cancellation confirmed SMS to customer
+
+Email setup in .env:
   GMAIL_ADDRESS=your@gmail.com
   GMAIL_APP_PASSWORD=xxxx (16-char Google App Password)
+  → Google Account → Security → 2-Step Verification → App Passwords
 
-How to get App Password:
-  Google Account → Security → 2-Step Verification → App Passwords
-  → Select "Mail" + "Other" → name it "AI Receptionist" → copy 16-char code
+SMS setup in .env:
+  TWILIO_ACCOUNT_SID=ACxxxx  (already there)
+  TWILIO_AUTH_TOKEN=xxxx     (already there)
+  TWILIO_PHONE_NUMBER=+12394238893  (your Twilio virtual number)
 """
 
 import smtplib
@@ -104,13 +109,13 @@ You can view all bookings in your dashboard.
     return _send(owner_email, subject, body)
 
 
-# ── 3. Booking confirmation to customer ──────────────────────────────────
+# ── 3. Booking confirmation to customer (email — future use) ─────────────
 
 def send_confirmation(business_name, customer_name, customer_email,
                       service, date_str, time_str, booking_id):
     """
-    Sent to the customer after their booking is confirmed.
-    Only fires when customer_email is available (not collected during voice calls yet).
+    Email to customer — only fires when customer_email is available.
+    Not used during voice calls (can't collect email over phone).
     """
     if not customer_email:
         return False
@@ -132,3 +137,64 @@ To reschedule or cancel, please call us directly.
 Thank you for choosing {business_name}!
 """
     return _send(customer_email, subject, body)
+
+
+# ── 4. SMS to customer — booking confirmed ────────────────────────────────
+
+def send_sms_confirmation(to_phone, business_name, customer_name,
+                          service, date_str, time_str, booking_id):
+    """
+    SMS sent to the caller's real phone number right after booking is confirmed.
+    to_phone must be in E.164 format e.g. +12394238893 (passed from Twilio's From field).
+    """
+    account_sid  = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token   = os.getenv("TWILIO_AUTH_TOKEN")
+    from_number  = os.getenv("TWILIO_PHONE_NUMBER")   # your Twilio virtual number
+
+    if not account_sid or not auth_token or not from_number or not to_phone:
+        return False
+
+    message = (
+        f"Booking Confirmed! Hi {customer_name}, your {service} at "
+        f"{business_name} is booked for {date_str} at {time_str}. "
+        f"Booking ID: #{booking_id}. To cancel, call us."
+    )
+
+    try:
+        from twilio.rest import Client
+        client = Client(account_sid, auth_token)
+        client.messages.create(to=to_phone, from_=from_number, body=message)
+        print(f"[notifier] SMS sent → {to_phone}")
+        return True
+    except Exception as e:
+        print(f"[notifier] SMS failed → {e}")
+        return False
+
+
+# ── 5. SMS to customer — cancellation confirmed ───────────────────────────
+
+def send_sms_cancellation(to_phone, business_name, booking_id):
+    """
+    SMS sent to the caller's real phone number right after their booking is cancelled.
+    """
+    account_sid  = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token   = os.getenv("TWILIO_AUTH_TOKEN")
+    from_number  = os.getenv("TWILIO_PHONE_NUMBER")
+
+    if not account_sid or not auth_token or not from_number or not to_phone:
+        return False
+
+    message = (
+        f"Booking #{booking_id} at {business_name} has been cancelled. "
+        f"Call us anytime to rebook. Thank you!"
+    )
+
+    try:
+        from twilio.rest import Client
+        client = Client(account_sid, auth_token)
+        client.messages.create(to=to_phone, from_=from_number, body=message)
+        print(f"[notifier] Cancellation SMS sent → {to_phone}")
+        return True
+    except Exception as e:
+        print(f"[notifier] Cancellation SMS failed → {e}")
+        return False
