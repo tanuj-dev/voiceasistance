@@ -3,6 +3,7 @@ from datetime import datetime
 import brain
 import database
 import slot_manager
+import notifier
 
 
 URGENT_WORDS = ["urgent", "emergency", "severe", "accident", "critical", "bleeding"]
@@ -77,6 +78,13 @@ class Receptionist:
             # Step 3: cancel it and confirm
             database.cancel_booking(booking["id"])
             self.state = "done"
+            # Email alert to business owner
+            notifier.notify_owner_cancellation(
+                business_name  = self.business["name"],
+                owner_email    = self.business.get("contact_email", ""),
+                customer_phone = c["phone"],
+                booking_id     = booking["id"],
+            )
             return self._r("cancel_confirmed", booking_id=booking["id"])
 
         if c["intent"] in ("book", "reschedule"):
@@ -173,6 +181,17 @@ class Receptionist:
         )
         if booking_id:
             self.state = "done"
+            # Email alert to business owner
+            notifier.notify_owner(
+                business_name  = self.business["name"],
+                owner_email    = self.business.get("contact_email", ""),
+                customer_name  = c["name"],
+                customer_phone = c["phone"],
+                service        = c["service"],
+                date_str       = _day_name(c["date"]),
+                time_str       = c["time"],
+                booking_id     = booking_id,
+            )
             return self._r(
                 "booked",
                 id      = booking_id,
