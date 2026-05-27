@@ -88,10 +88,30 @@ class Receptionist:
         c = self.collected
 
         if not c["intent"]:
-            return self._r("no_intent")
+            # Try Groq for natural off-script responses
+            groq = brain.groq_reply(
+                user_text     = getattr(self, "_last_user", ""),
+                business_name = self.business["name"],
+                services      = self.business["services"],
+                days          = self.business["working_days"],
+                start_time    = self.business["start_time"],
+                end_time      = self.business["end_time"],
+                booking_word  = self._booking_word(),
+            )
+            return groq if groq else self._r("no_intent")
 
         if c["intent"] == "info":
-            return self._r("info")
+            # Use Groq for richer info answers
+            groq = brain.groq_reply(
+                user_text     = getattr(self, "_last_user", ""),
+                business_name = self.business["name"],
+                services      = self.business["services"],
+                days          = self.business["working_days"],
+                start_time    = self.business["start_time"],
+                end_time      = self.business["end_time"],
+                booking_word  = self._booking_word(),
+            )
+            return groq if groq else self._r("info")
 
         if c["intent"] == "cancel":
             # Step 1: collect phone number

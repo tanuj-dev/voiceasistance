@@ -9,8 +9,11 @@ Two responsibilities:
 
 import re
 import random
+import os
 from datetime import datetime, timedelta
 from difflib import get_close_matches
+from dotenv import load_dotenv
+load_dotenv()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -166,6 +169,54 @@ def reply(key, **kwargs):
     except KeyError:
         # Return template as-is if a placeholder is missing
         return template
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  GROQ AI FALLBACK
+#  Used when caller asks something the rule-based engine can't handle.
+#  e.g. "Do you offer EMI?", "What's the price?", "How long does it take?"
+# ═══════════════════════════════════════════════════════════════════════════
+
+def groq_reply(user_text, business_name, services, days, start_time, end_time, booking_word="appointment"):
+    """
+    Call Groq (Llama 3) for natural off-script questions.
+    Returns a short spoken response, or None if Groq is not configured / fails.
+    """
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key or not user_text:
+        return None
+
+    system_prompt = f"""You are a friendly voice receptionist for {business_name}.
+Business details:
+- Services: {', '.join(services) if isinstance(services, list) else services}
+- Open: {', '.join(days) if isinstance(days, list) else days}, {start_time} to {end_time}
+
+STRICT RULES (this is a phone call — follow these exactly):
+1. Reply in MAX 2 short sentences. Never go longer.
+2. If the caller wants to book/schedule/reserve, say "Sure, I can book that for you!" — the system will handle the rest.
+3. If the caller wants to cancel, say "Of course, I can help with that!" — the system will handle it.
+4. Never invent prices, policies, or details you don't know. Say "For that, I'd suggest calling us directly."
+5. Sound warm and natural — like a real human receptionist.
+6. Do NOT use bullet points, lists, or markdown. Speak in plain sentences."""
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_text},
+            ],
+            max_tokens=80,       # keeps it short for phone calls
+            temperature=0.6,
+        )
+        reply_text = response.choices[0].message.content.strip()
+        print(f"[groq] {reply_text}")
+        return reply_text
+    except Exception as e:
+        print(f"[groq] failed: {e}")
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
