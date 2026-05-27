@@ -171,6 +171,162 @@ def reply(key, **kwargs):
         return template
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  DAY SUMMARISER
+#  Turns a long list like "Monday, Tuesday, Wednesday, Thursday, Friday,
+#  Saturday, Sunday" into a short spoken phrase like "every day".
+#  Keeps phone call latency low — callers hear the answer before the mic opens.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SLOT SUMMARISER
+#  Turns "09:00 AM, 09:30 AM, 10:00 AM, 10:30 AM, 11:00 AM, 02:00 PM, 02:30 PM"
+#  into "morning from 9 to 11 AM, and afternoon from 2 to 2:30 PM"
+#  so the AI doesn't read 10 individual times before the mic opens.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _short_time(slot):
+    """
+    "09:00 AM" → "9 AM"
+    "09:30 AM" → "9:30 AM"
+    "02:30 PM" → "2:30 PM"
+    """
+    try:
+        t = datetime.strptime(slot.strip(), "%I:%M %p")
+        h = str(t.hour % 12 or 12)          # no leading zero
+        ampm = "AM" if t.hour < 12 else "PM"
+        if t.minute == 0:
+            return f"{h} {ampm}"
+        return f"{h}:{t.strftime('%M')} {ampm}"
+    except ValueError:
+        return slot
+
+
+def _drop_ampm(time_str):
+    """'9 AM' → '9',  '9:30 AM' → '9:30',  '12 PM' → '12'"""
+    return time_str.rsplit(" ", 1)[0]
+
+
+def summarize_slots(slots):
+    """
+    Return a short spoken phrase for the available slots list.
+
+    ≤3 slots  → list them  ("9 AM, 10 AM, and 11:30 AM")
+    4+ slots  → group by time period and give a range
+                ("morning from 9 to 11:30 AM, and afternoon from 2 to 4:30 PM")
+
+    Within a range the AM/PM only appears at the end to keep it short:
+        "morning from 9 to 11:30 AM"  ✓
+        "morning from 9 AM to 11:30 AM"  ✗  (too long)
+    """
+    if not slots:
+        return "no slots available"
+
+    if len(slots) <= 3:
+        short = [_short_time(s) for s in slots]
+        if len(short) == 1:
+            return short[0]
+        if len(short) == 2:
+            return f"{short[0]} and {short[1]}"
+        return f"{short[0]}, {short[1]}, and {short[2]}"
+
+    # Group into time-of-day buckets
+    morning   = []   # before 12:00
+    afternoon = []   # 12:00 – 16:59
+    evening   = []   # 17:00+
+
+    for slot in slots:
+        try:
+            t = datetime.strptime(slot.strip(), "%I:%M %p")
+            if t.hour < 12:
+                morning.append(slot)
+            elif t.hour < 17:
+                afternoon.append(slot)
+            else:
+                evening.append(slot)
+        except ValueError:
+            morning.append(slot)   # safe fallback
+
+    parts = []
+    for label, group in [("morning", morning), ("afternoon", afternoon), ("evening", evening)]:
+        if not group:
+            continue
+        last_str = _short_time(group[-1])
+        if len(group) == 1:
+            # "evening at 5 PM"
+            parts.append(f"{label} at {last_str}")
+        else:
+            # "morning from 9 to 11:30 AM"  — drop AM/PM from the first time
+            first_no_ampm = _drop_ampm(_short_time(group[0]))
+            parts.append(f"{label} from {first_no_ampm} to {last_str}")
+
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return f"{parts[0]}, and {parts[1]}"
+    return ", ".join(parts[:-1]) + f", and {parts[-1]}"
+
+
+_ALL_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+# Named shortcut phrases (most common patterns)
+_DAY_SHORTCUTS = {
+    frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]): "every day",
+    frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday"])                    : "Monday through Friday",
+    frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"])          : "Monday through Saturday",
+    frozenset(["Saturday","Sunday"])                                                    : "weekends only",
+    frozenset(["Monday","Tuesday","Wednesday","Thursday"])                              : "Monday through Thursday",
+    frozenset(["Tuesday","Wednesday","Thursday","Friday"])                              : "Tuesday through Friday",
+    frozenset(["Monday","Wednesday","Friday"])                                          : "Monday, Wednesday, and Friday",
+    frozenset(["Tuesday","Thursday"])                                                   : "Tuesdays and Thursdays",
+}
+
+
+def summarize_days(days):
+    """
+    Return a short spoken phrase for the given list of open days.
+
+    Examples
+    --------
+    ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] → "every day"
+    ["Mon","Tue","Wed","Thu","Fri"]             → "Monday through Friday"
+    ["Mon","Tue","Wed","Thu","Fri","Sat"]       → "Monday through Saturday"
+    ["Sat","Sun"]                               → "weekends only"
+    ["Tue","Thu"]                               → "Tuesdays and Thursdays"
+    ["Mon","Wed","Thu","Fri","Sat"]             → "Monday, Wednesday, Thursday, Friday, and Saturday"
+    """
+    if not days:
+        return "select days"
+
+    # Normalise to full names (handle abbreviations like "Mon", "Tue")
+    abbr_map = {d[:3].lower(): d for d in _ALL_DAYS}
+    normalised = []
+    for d in days:
+        key = d[:3].lower()
+        normalised.append(abbr_map.get(key, d))
+
+    day_set = frozenset(normalised)
+
+    # Named shortcut?
+    if day_set in _DAY_SHORTCUTS:
+        return _DAY_SHORTCUTS[day_set]
+
+    # Consecutive range?  (e.g. Wed–Sat → "Wednesday through Saturday")
+    indices = [_ALL_DAYS.index(d) for d in normalised if d in _ALL_DAYS]
+    if indices:
+        indices.sort()
+        if indices == list(range(indices[0], indices[-1] + 1)) and len(indices) >= 3:
+            return f"{_ALL_DAYS[indices[0]]} through {_ALL_DAYS[indices[-1]]}"
+
+    # Fallback: natural list with Oxford comma
+    ordered = [d for d in _ALL_DAYS if d in day_set]   # keep week order
+    if len(ordered) == 1:
+        return ordered[0] + "s"
+    if len(ordered) == 2:
+        return f"{ordered[0]} and {ordered[1]}"
+    return ", ".join(ordered[:-1]) + f", and {ordered[-1]}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  GROQ AI FALLBACK
 #  Used when caller asks something the rule-based engine can't handle.

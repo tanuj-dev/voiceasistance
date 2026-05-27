@@ -71,7 +71,7 @@ class Receptionist:
             services     = ", ".join(b["services"]),
             start_time   = b["start_time"],
             end_time     = b["end_time"],
-            days         = ", ".join(b["working_days"]),
+            days         = brain.summarize_days(b["working_days"]),
             booking_word = self._booking_word(),
             **extra
         )
@@ -167,15 +167,16 @@ class Receptionist:
                 self.business_id, c["date"])
 
         if not self.available_slots:
+            bad_date = _day_name(c["date"])   # capture before clearing
             c["date"] = None
-            return self._r("no_slots", date=_day_name(c["date"] or "that date"))
+            return self._r("no_slots", date=bad_date)
 
         # 4. Time
         if not c["time"]:
             return self._r(
                 "show_slots",
                 date  = _day_name(c["date"]),
-                slots = ", ".join(self.available_slots[:6]),
+                slots = brain.summarize_slots(self.available_slots),
             )
 
         # Validate the chosen time against real slots
@@ -184,7 +185,7 @@ class Receptionist:
             c["time"] = None
             return self._r(
                 "slot_unavailable",
-                slots = ", ".join(self.available_slots[:6]),
+                slots = brain.summarize_slots(self.available_slots),
             )
         c["time"] = matched
 
@@ -270,7 +271,7 @@ class Receptionist:
             self.state = "booking"
             return self._r(
                 "slot_taken",
-                slots = ", ".join(self.available_slots[:6])
+                slots = brain.summarize_slots(self.available_slots)
                         if self.available_slots else "none available",
             )
 
