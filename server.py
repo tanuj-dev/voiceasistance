@@ -291,6 +291,17 @@ def phone():
 
 
 # ------------------------------------------------------------------ #
+#  React Dashboard (SPA)                                             #
+# ------------------------------------------------------------------ #
+
+@app.route("/dashboard")
+@app.route("/dashboard/")
+def dashboard():
+    """Serve the React admin dashboard SPA."""
+    return send_file("static/dashboard/index.html")
+
+
+# ------------------------------------------------------------------ #
 #  Admin Dashboard                                                    #
 # ------------------------------------------------------------------ #
 
