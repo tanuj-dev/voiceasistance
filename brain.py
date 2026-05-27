@@ -337,11 +337,22 @@ def extract_time(text):
 # ── Name ───────────────────────────────────────────────────────────────────
 
 _STOP_WORDS = {
+    # Pronouns & articles
     "my", "name", "is", "i", "am", "i'm", "call", "me", "it's", "its",
-    "the", "a", "an", "yes", "no", "hi", "hello", "okay", "ok", "sure",
+    "the", "a", "an", "he", "she", "we", "they", "our", "your", "their",
+    # Filler / conversation words
+    "yes", "no", "hi", "hello", "okay", "ok", "sure", "right", "yeah",
     "please", "thank", "you", "this", "that", "and", "for", "with",
     "just", "like", "want", "need", "book", "appointment", "today",
     "tomorrow", "morning", "afternoon", "evening", "pm", "am",
+    # Action words commonly spoken during booking
+    "go", "going", "come", "coming", "still", "order", "work", "works",
+    "tell", "said", "done", "know", "get", "got", "will", "would",
+    "here", "there", "then", "also", "from", "have", "has", "had",
+    "can", "could", "should", "let", "say", "take", "give",
+    # Number words (e.g. "Four wires" — "Four" is not a name)
+    "one", "two", "three", "four", "five", "six", "seven", "eight",
+    "nine", "ten", "eleven", "twelve", "first", "second", "third",
 }
 
 
@@ -360,7 +371,7 @@ def extract_name(text, services=None):
         """True if word could be part of a person's name."""
         return (
             word.isalpha()           # letters only — no digits
-            and len(word) >= 2
+            and len(word) >= 3       # at least 3 chars — filters "Go", "Ok", "Hi"
             and word.lower() not in excluded
         )
 
