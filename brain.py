@@ -35,15 +35,14 @@ TEMPLATES = {
         "Sure! Which service do you need? We offer {services}.",
     ],
     "ask_date": [
-        "What date works for you?",
-        "Which date would you prefer?",
-        "When would you like to come in?",
-        "What date are you looking at?",
+        "We're open on {days}. Which day works for you?",
+        "Sure! We're available on {days}. Which date would you like to come in?",
+        "We're open {days}. Which day works best for you?",
     ],
     "show_slots": [
-        "On {date}, I have slots available at {slots}. Which time works for you?",
-        "For {date}, the available times are {slots}. Which do you prefer?",
-        "I have the following slots open on {date}: {slots}. Which would you like?",
+        "For {date}, the available slots are {slots}. Which time works for you?",
+        "On {date}, I have {slots} open. Which do you prefer?",
+        "Here are the available times on {date}: {slots}. Which would you like?",
     ],
     "slot_unavailable": [
         "Sorry, that time isn't available. The open slots are {slots}. Which works for you?",
@@ -51,9 +50,9 @@ TEMPLATES = {
         "Unfortunately that time is booked. Available slots are {slots}. Which suits you?",
     ],
     "no_slots": [
-        "I'm sorry, there are no available slots on {date}. Could you try a different date?",
-        "We're fully booked on {date}. What other date would work for you?",
-        "Unfortunately {date} is fully booked. Could you suggest another date?",
+        "I'm sorry, there are no available slots on {date}. We're open on {days} — which other day works for you?",
+        "We're fully booked on {date}. We have availability on {days} — which day would you prefer?",
+        "Unfortunately {date} is fully booked. Could you try another day? We're open on {days}.",
     ],
     "ask_name": [
         "May I have your full name please?",
