@@ -251,6 +251,21 @@ def health():
     }
 
 
+@app.route("/debug/booking", methods=["GET"])
+def debug_booking():
+    """Test the full booking flow and return any error."""
+    try:
+        from receptionist import Receptionist
+        import brain, slot_manager
+        r = Receptionist("tanuj_dental", "+11234567890")
+        step1 = r.process("I want to book an appointment")
+        step2 = r.process("cleaning")
+        step3 = r.process("Monday")
+        return {"step1": step1, "step2": step2, "step3": step3, "ok": True}
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()}, 500
+
+
 @app.route("/token", methods=["GET"])
 def token():
     """Generate Twilio Access Token for browser-based calling."""
