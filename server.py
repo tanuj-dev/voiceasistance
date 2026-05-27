@@ -8,6 +8,7 @@ Webhook URLs to set in Twilio:
 """
 
 import os
+import traceback
 from flask import Flask, request, Response, jsonify, send_file, session, redirect, url_for
 from flask_cors import CORS
 from twilio.twiml.voice_response import VoiceResponse, Gather
@@ -210,6 +211,7 @@ def gather():
 
     except Exception as e:
         print(f"Error processing input: {e}")
+        traceback.print_exc()
         active_calls.pop(call_sid, None)
         return twiml_say_and_hangup(
             "I'm sorry, something went wrong. Please call back or speak to our team directly."
