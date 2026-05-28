@@ -769,13 +769,14 @@ def extract(text, services=None):
 # ── Hindi keyword helpers ───────────────────────────────────────────────────
 
 _HINDI_INTENT = {
-    "book":   ["बुक", "अपॉइंटमेंट", "appointment", "बुकिंग", "आना", "आना चाहता", "आना चाहती", "समय चाहिए", "book karna", "book"],
+    "book":   ["बुक", "अपॉइंटमेंट", "appointment", "बुकिंग", "आना", "आना चाहता",
+               "आना चाहती", "समय चाहिए", "book karna", "book"],
     "cancel": ["कैंसिल", "रद्द", "नहीं आना", "cancel"],
     "info":   ["जानकारी", "समय", "सेवा", "कितने बजे", "खुले", "services", "timing", "hours"],
 }
 
 _HINDI_DAY_MAP = {
-    "सोमवार": "monday", "mangalvar": "tuesday", "मंगलवार": "tuesday",
+    "सोमवार": "monday", "मंगलवार": "tuesday",
     "बुधवार": "wednesday", "गुरुवार": "thursday", "शुक्रवार": "friday",
     "शनिवार": "saturday", "रविवार": "sunday",
     "आज": "today", "कल": "tomorrow", "परसों": "day after tomorrow",
@@ -787,14 +788,83 @@ _HINDI_NUM_MAP = {
     "ग्यारह": "11", "बारह": "12",
 }
 
+# Devanagari transliterations of common service keywords.
+# Keys are lowercase English service name fragments → list of Hindi variants
+# that Twilio hi-IN STT might produce.
+_SERVICE_DEVANAGARI = {
+    "cleaning":     ["क्लीनिंग", "क्लींनिंग", "क्लीन", "सफाई", "साफ"],
+    "filling":      ["फिलिंग", "फ़िलिंग", "फिल"],
+    "root canal":   ["रूट कैनाल", "रूट", "कैनाल"],
+    "whitening":    ["व्हाइटनिंग", "सफेद", "वाइटनिंग"],
+    "extraction":   ["एक्सट्रैक्शन", "निकालना", "दांत निकालना", "एक्सट्रेक्शन"],
+    "consultation": ["परामर्श", "कंसल्टेशन"],
+    "haircut":      ["हेयरकट", "बाल"],
+    "massage":      ["मसाज", "मालिश"],
+    "facial":       ["फेशियल"],
+    "session":      ["सेशन"],
+}
+
+# Ordinal words → 1-based index into services list
+_HINDI_ORDINALS = {
+    "पहली": 1, "पहला": 1, "पहले": 1, "first": 1, "1": 1,
+    "दूसरी": 2, "दूसरा": 2, "second": 2, "2": 2,
+    "तीसरी": 3, "तीसरा": 3, "third": 3, "3": 3,
+    "चौथी": 4, "चौथा": 4, "fourth": 4, "4": 4,
+    "पाँचवीं": 5, "पाँचवाँ": 5, "fifth": 5, "5": 5,
+}
+
+
+def _match_service_hi(text, services):
+    """
+    Try to match a service from Hindi-transcribed text.
+    1. Direct English substring match (handles bilingual STT output)
+    2. Devanagari variant match
+    3. Ordinal / number selection (caller says "पहली" / "first")
+    """
+    if not services:
+        return None
+
+    t = text.lower()
+
+    # 1. Standard English substring match
+    for s in services:
+        if s.lower() in t:
+            return s
+
+    # 2. Devanagari variant match
+    for s in services:
+        s_lower = s.lower()
+        for eng_key, hindi_variants in _SERVICE_DEVANAGARI.items():
+            if eng_key in s_lower:
+                if any(hv in text for hv in hindi_variants):
+                    return s
+
+    # 3. Ordinal selection ("पहली सेवा" / "first one" / "number 1")
+    for word, idx in _HINDI_ORDINALS.items():
+        if word in t and idx <= len(services):
+            return services[idx - 1]
+
+    # 4. Fuzzy English match (handles "clining", "filng" etc.)
+    words = t.split()
+    service_lower = [s.lower() for s in services]
+    for word in words:
+        matches = get_close_matches(word, service_lower, n=1, cutoff=0.70)
+        if matches:
+            return services[service_lower.index(matches[0])]
+
+    return None
+
 
 def extract_hi(text, services=None):
     """
     Extract structured fields from Hindi caller speech.
     Falls back to English extract() for anything not matched in Hindi.
     """
-    t_lower = text.lower()
-    result = extract(text, services)   # start with English extraction as base
+    result = extract(text, services)   # English base pass
+
+    # Override service with Hindi-aware matching
+    if not result["service"]:
+        result["service"] = _match_service_hi(text, services or [])
 
     # Override intent from Hindi keywords
     if not result["intent"]:
@@ -805,14 +875,12 @@ def extract_hi(text, services=None):
 
     # Override date from Hindi day names / relative words
     if not result["date"]:
-        today = datetime.now()
         for hindi_word, eng_equiv in _HINDI_DAY_MAP.items():
             if hindi_word in text:
-                # Re-run English extract on the equivalent English word
                 result["date"] = extract_date(eng_equiv)
                 break
 
-    # Replace Hindi number words in text before time extraction
+    # Hindi number words → digits before time extraction
     if not result["time"]:
         normalized = text
         for hindi_num, digit in _HINDI_NUM_MAP.items():
