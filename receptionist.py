@@ -233,8 +233,15 @@ class Receptionist:
 
         # 8. Finalise after caller says yes
         last_words = getattr(self, "_last_user", "").lower()
-        YES_WORDS = ["yes", "correct", "confirm", "sure", "right",
-                     "yep", "yeah", "ok", "okay", "perfect", "go ahead"]
+        YES_WORDS = [
+            # English
+            "yes", "correct", "confirm", "sure", "right",
+            "yep", "yeah", "ok", "okay", "perfect", "go ahead",
+            # Hindi — spoken and common STT outputs
+            "हाँ", "हां", "हा", "जी", "जी हाँ", "जी हां",
+            "bilkul", "बिल्कुल", "sahi", "सही", "theek", "ठीक",
+            "haan", "han", "ha ", " ha",
+        ]
         if any(w in last_words for w in YES_WORDS):
             return self._finalise()
 
@@ -249,12 +256,19 @@ class Receptionist:
 
     def _finalise(self):
         c = self.collected
-        booking_id = slot_manager.book_appointment(
-            self.business_id,
-            c["date"], c["time"],
-            c["name"], c["phone"], "",
-            c["service"],
-        )
+        try:
+            booking_id = slot_manager.book_appointment(
+                self.business_id,
+                c["date"], c["time"],
+                c["name"], c["phone"], "",
+                c["service"],
+            )
+        except Exception as e:
+            import traceback
+            print(f"[_finalise] booking error: {e}")
+            traceback.print_exc()
+            self.state = "done"
+            return self._r("unclear")  # fallback — caller hears "could you repeat" then hangup
         if booking_id:
             self.state = "done"
             # Send email + SMS in background so voice response returns instantly
