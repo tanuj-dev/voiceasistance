@@ -83,6 +83,8 @@ class Receptionist:
     # ── shortcut to brain.reply with business fields pre-filled ──────────
     def _r(self, key, **extra):
         b = self.business
+        days = brain.summarize_days_hi(b["working_days"]) if self.lang == "hi" \
+               else brain.summarize_days(b["working_days"])
         return brain.reply(
             key,
             lang         = self.lang,
@@ -90,7 +92,7 @@ class Receptionist:
             services     = ", ".join(b["services"]),
             start_time   = b["start_time"],
             end_time     = b["end_time"],
-            days         = brain.summarize_days(b["working_days"]),
+            days         = days,
             booking_word = self._booking_word(),
             **extra
         )

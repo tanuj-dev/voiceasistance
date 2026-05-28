@@ -364,6 +364,49 @@ def summarize_slots(slots):
 
 _ALL_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+_ALL_DAYS_HI = ["सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार"]
+
+_DAY_SHORTCUTS_HI = {
+    frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]): "हर रोज़",
+    frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday"])                    : "सोमवार से शुक्रवार",
+    frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"])          : "सोमवार से शनिवार",
+    frozenset(["Saturday","Sunday"])                                                    : "सिर्फ़ वीकेंड पर",
+    frozenset(["Monday","Tuesday","Wednesday","Thursday"])                              : "सोमवार से गुरुवार",
+    frozenset(["Tuesday","Wednesday","Thursday","Friday"])                              : "मंगलवार से शुक्रवार",
+}
+
+_ENG_TO_HI_DAY = {
+    "Monday": "सोमवार", "Tuesday": "मंगलवार", "Wednesday": "बुधवार",
+    "Thursday": "गुरुवार", "Friday": "शुक्रवार", "Saturday": "शनिवार", "Sunday": "रविवार",
+}
+
+
+def summarize_days_hi(days):
+    """Return a short spoken Hindi phrase for the given list of open days."""
+    if not days:
+        return "कुछ दिन"
+    abbr_map = {d[:3].lower(): d for d in _ALL_DAYS}
+    normalised = [abbr_map.get(d[:3].lower(), d) for d in days]
+    day_set = frozenset(normalised)
+
+    if day_set in _DAY_SHORTCUTS_HI:
+        return _DAY_SHORTCUTS_HI[day_set]
+
+    # Consecutive range
+    indices = [_ALL_DAYS.index(d) for d in normalised if d in _ALL_DAYS]
+    if indices:
+        indices.sort()
+        if indices == list(range(indices[0], indices[-1] + 1)) and len(indices) >= 3:
+            return f"{_ALL_DAYS_HI[indices[0]]} से {_ALL_DAYS_HI[indices[-1]]}"
+
+    # List with natural Hindi joining
+    ordered_hi = [_ENG_TO_HI_DAY.get(d, d) for d in _ALL_DAYS if d in day_set]
+    if len(ordered_hi) == 1:
+        return ordered_hi[0]
+    if len(ordered_hi) == 2:
+        return f"{ordered_hi[0]} और {ordered_hi[1]}"
+    return "、".join(ordered_hi[:-1]) + f" और {ordered_hi[-1]}"
+
 # Named shortcut phrases (most common patterns)
 _DAY_SHORTCUTS = {
     frozenset(["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]): "every day",
