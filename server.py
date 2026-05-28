@@ -177,11 +177,7 @@ def answer():
     # Store business_id + caller so /voice/lang can create the Receptionist
     active_calls[call_sid] = {"business_id": business_id, "from_number": from_number}
 
-    # Bilingual prompt — both audiences understand it
-    lang_prompt = (
-        "Hello! Which language do you prefer — Hindi or English? "
-        "नमस्ते! आप कौन सी भाषा पसंद करेंगे — हिंदी या अंग्रेज़ी?"
-    )
+    lang_prompt = "Hello! Which language do you prefer, English or Hindi?"
     resp = VoiceResponse()
     gather = Gather(
         input="speech",
