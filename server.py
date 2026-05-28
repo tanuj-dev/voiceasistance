@@ -135,9 +135,9 @@ def twiml_say_and_listen(text, action="/voice/gather", lang="en"):
 
 def twiml_say_and_hangup(text, lang="en"):
     """Speak final message and end the call."""
-    voice, language = _voice_params(lang)
+    tts_voice, tts_lang, _stt_lang = _voice_params(lang)
     resp = VoiceResponse()
-    resp.say(text, voice=voice, language=language)
+    resp.say(text, voice=tts_voice, language=tts_lang)
     resp.hangup()
     return Response(str(resp), mimetype="text/xml")
 
