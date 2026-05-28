@@ -22,14 +22,13 @@ def _day_name(date_str):
 
 
 class Receptionist:
-    def __init__(self, business_id, caller_phone=None):
+    def __init__(self, business_id, caller_phone=None, lang="en"):
         self.business = database.get_business(business_id)
         if not self.business:
             raise ValueError(f"Business '{business_id}' not found in database.")
         self.business_id  = business_id
-        # caller_phone is the real E.164 number from Twilio/Exotel (e.g. +12394238893)
-        # Used to send SMS — the spoken phone is used for DB lookup only
         self.caller_phone = caller_phone
+        self.lang         = lang   # "en" or "hi"
         self.state = "greeting"
         self.collected = {
             "intent":  None,
@@ -43,7 +42,25 @@ class Receptionist:
 
     # ── booking word based on business type ──────────────────────────────
     def _booking_word(self):
-        """Returns the right word for a booking based on business type."""
+        """Returns the right word for a booking based on business type and language."""
+        if self.lang == "hi":
+            _WORD_MAP_HI = {
+                "dental":  "अपॉइंटमेंट",
+                "medical": "अपॉइंटमेंट",
+                "clinic":  "अपॉइंटमेंट",
+                "doctor":  "अपॉइंटमेंट",
+                "physio":  "सेशन",
+                "gym":     "सेशन",
+                "fitness": "सेशन",
+                "yoga":    "सेशन",
+                "salon":   "बुकिंग",
+                "barber":  "बुकिंग",
+                "spa":     "बुकिंग",
+                "hotel":   "रिज़र्वेशन",
+            }
+            btype = self.business.get("type", "").lower()
+            return _WORD_MAP_HI.get(btype, "अपॉइंटमेंट")
+
         _WORD_MAP = {
             "dental":   "appointment",
             "medical":  "appointment",
@@ -68,6 +85,7 @@ class Receptionist:
         b = self.business
         return brain.reply(
             key,
+            lang         = self.lang,
             business     = b["name"],
             services     = ", ".join(b["services"]),
             start_time   = b["start_time"],
@@ -89,7 +107,6 @@ class Receptionist:
         c = self.collected
 
         if not c["intent"]:
-            # Try Groq for natural off-script responses
             groq = brain.groq_reply(
                 user_text     = getattr(self, "_last_user", ""),
                 business_name = self.business["name"],
@@ -98,11 +115,11 @@ class Receptionist:
                 start_time    = self.business["start_time"],
                 end_time      = self.business["end_time"],
                 booking_word  = self._booking_word(),
+                lang          = self.lang,
             )
             return groq if groq else self._r("no_intent")
 
         if c["intent"] == "info":
-            # Use Groq for richer info answers
             groq = brain.groq_reply(
                 user_text     = getattr(self, "_last_user", ""),
                 business_name = self.business["name"],
@@ -111,6 +128,7 @@ class Receptionist:
                 start_time    = self.business["start_time"],
                 end_time      = self.business["end_time"],
                 booking_word  = self._booking_word(),
+                lang          = self.lang,
             )
             return groq if groq else self._r("info")
 
@@ -283,11 +301,15 @@ class Receptionist:
     def process(self, user_text):
         self._last_user = user_text
 
-        if any(w in user_text.lower() for w in URGENT_WORDS):
+        URGENT_HI = ["इमरजेंसी", "दर्द", "खून", "accident", "emergency"]
+        urgent_check = URGENT_WORDS + (URGENT_HI if self.lang == "hi" else [])
+        if any(w in user_text.lower() for w in urgent_check):
             self.state = "done"
             return self._r("urgency")
 
-        extracted = brain.extract(user_text, self.business["services"])
+        extracted = brain.extract_hi(user_text, self.business["services"]) \
+                    if self.lang == "hi" else \
+                    brain.extract(user_text, self.business["services"])
         c = self.collected
 
         for key in ("intent", "service", "name"):

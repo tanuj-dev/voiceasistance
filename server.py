@@ -105,28 +105,36 @@ def load_phone_map():
     return mapping
 
 
-def twiml_say_and_listen(text, action="/voice/gather"):
+def _voice_params(lang):
+    """Return (voice, language) tuple for Twilio <Say> based on lang."""
+    if lang == "hi":
+        return "Polly.Aditi", "hi-IN"
+    return "alice", "en-IN"
+
+
+def twiml_say_and_listen(text, action="/voice/gather", lang="en"):
     """Speak text then wait for caller's voice input."""
+    voice, language = _voice_params(lang)
     resp = VoiceResponse()
     gather = Gather(
         input="speech",
         action=action,
         method="POST",
         speech_timeout="auto",
-        language="en-IN",
+        language=language,
         enhanced=True,
     )
-    gather.say(text, voice="alice", language="en-IN")
+    gather.say(text, voice=voice, language=language)
     resp.append(gather)
-    # If caller says nothing, re-prompt
     resp.redirect("/voice/no_input", method="POST")
     return Response(str(resp), mimetype="text/xml")
 
 
-def twiml_say_and_hangup(text):
+def twiml_say_and_hangup(text, lang="en"):
     """Speak final message and end the call."""
+    voice, language = _voice_params(lang)
     resp = VoiceResponse()
-    resp.say(text, voice="alice", language="en-IN")
+    resp.say(text, voice=voice, language=language)
     resp.hangup()
     return Response(str(resp), mimetype="text/xml")
 
@@ -153,9 +161,9 @@ def get_business_for_call(to_number):
 
 @app.route("/voice/answer", methods=["POST"])
 def answer():
-    """Twilio calls this when a new call comes in."""
-    call_sid = request.form.get("CallSid")
-    to_number = request.form.get("To")
+    """Twilio calls this when a new call comes in. Ask language preference first."""
+    call_sid    = request.form.get("CallSid")
+    to_number   = request.form.get("To")
     from_number = request.form.get("From")
 
     print(f"\n📞 Incoming call: {from_number} → {to_number} [{call_sid}]")
@@ -166,41 +174,104 @@ def answer():
             "Thank you for calling. We are currently unavailable. Please try again later."
         )
 
+    # Store business_id + caller so /voice/lang can create the Receptionist
+    active_calls[call_sid] = {"business_id": business_id, "from_number": from_number}
+
+    # Bilingual prompt — both audiences understand it
+    lang_prompt = (
+        "Hello! Which language do you prefer — Hindi or English? "
+        "नमस्ते! आप कौन सी भाषा पसंद करेंगे — हिंदी या अंग्रेज़ी?"
+    )
+    resp = VoiceResponse()
+    gather = Gather(
+        input="speech",
+        action="/voice/lang",
+        method="POST",
+        speech_timeout="auto",
+        language="hi-IN",   # hi-IN understands both "Hindi" and "English"
+        enhanced=True,
+    )
+    gather.say(lang_prompt, voice="alice", language="en-IN")
+    resp.append(gather)
+    resp.redirect("/voice/lang_timeout", method="POST")
+    return Response(str(resp), mimetype="text/xml")
+
+
+@app.route("/voice/lang", methods=["POST"])
+def lang_select():
+    """Detect language choice and start the receptionist."""
+    call_sid = request.form.get("CallSid")
+    speech   = request.form.get("SpeechResult", "").strip().lower()
+
+    session_data = active_calls.get(call_sid, {})
+    business_id  = session_data.get("business_id") if isinstance(session_data, dict) else None
+    from_number  = session_data.get("from_number") if isinstance(session_data, dict) else None
+
+    if not business_id:
+        return twiml_say_and_hangup("Sorry, something went wrong. Please call back.")
+
+    # Detect Hindi — covers "hindi", "हिंदी", "हिन्दी", "hindi hai"
+    lang = "hi" if ("hindi" in speech or "हिंदी" in speech or "हिन्दी" in speech) else "en"
+    print(f"[{call_sid}] Language selected: {lang} (heard: '{speech}')")
+
     try:
-        receptionist = Receptionist(business_id, caller_phone=from_number)
+        receptionist = Receptionist(business_id, caller_phone=from_number, lang=lang)
         active_calls[call_sid] = receptionist
         greeting = receptionist.greeting()
-        print(f"[{call_sid}] Assistant: {greeting}")
-        return twiml_say_and_listen(greeting)
+        print(f"[{call_sid}] Greeting: {greeting}")
+        return twiml_say_and_listen(greeting, lang=lang)
     except Exception as e:
         print(f"Error starting receptionist: {e}")
-        return twiml_say_and_hangup(
-            "Thank you for calling. We are experiencing technical difficulties. Please call back shortly."
-        )
+        return twiml_say_and_hangup("We are experiencing technical difficulties. Please call back.")
+
+
+@app.route("/voice/lang_timeout", methods=["POST"])
+def lang_timeout():
+    """Caller said nothing on language prompt — default to English."""
+    call_sid    = request.form.get("CallSid")
+    session_data = active_calls.get(call_sid, {})
+    business_id  = session_data.get("business_id") if isinstance(session_data, dict) else None
+    from_number  = session_data.get("from_number") if isinstance(session_data, dict) else None
+
+    if not business_id:
+        return twiml_say_and_hangup("Sorry, something went wrong. Please call back.")
+
+    try:
+        receptionist = Receptionist(business_id, caller_phone=from_number, lang="en")
+        active_calls[call_sid] = receptionist
+        greeting = receptionist.greeting()
+        return twiml_say_and_listen(greeting, lang="en")
+    except Exception as e:
+        print(f"Error on lang_timeout: {e}")
+        return twiml_say_and_hangup("We are experiencing technical difficulties. Please call back.")
 
 
 @app.route("/voice/gather", methods=["POST"])
 def gather():
     """Twilio calls this after the caller speaks."""
-    call_sid = request.form.get("CallSid")
-    speech = request.form.get("SpeechResult", "").strip()
+    call_sid   = request.form.get("CallSid")
+    speech     = request.form.get("SpeechResult", "").strip()
     confidence = request.form.get("Confidence", "0")
 
     receptionist = active_calls.get(call_sid)
-    if not receptionist:
-        return twiml_say_and_hangup(
-            "I'm sorry, your session has expired. Please call back."
-        )
+    if not receptionist or isinstance(receptionist, dict):
+        return twiml_say_and_hangup("I'm sorry, your session has expired. Please call back.")
+
+    lang = getattr(receptionist, "lang", "en")
 
     if not speech:
-        return twiml_say_and_listen("I didn't quite catch that. Could you please repeat?")
+        msg = "माफ़ करें, मैंने सुना नहीं। क्या आप फिर से कहेंगे?" if lang == "hi" \
+              else "I didn't quite catch that. Could you please repeat?"
+        return twiml_say_and_listen(msg, lang=lang)
 
     print(f"[{call_sid}] Customer (conf {confidence}): {speech}")
 
-    # Exit words
-    if any(w in speech.lower() for w in ["bye", "goodbye", "hang up", "end call", "disconnect"]):
+    bye_words = ["bye", "goodbye", "hang up", "end call", "disconnect", "धन्यवाद", "बाय", "रखो"]
+    if any(w in speech.lower() for w in bye_words):
         del active_calls[call_sid]
-        return twiml_say_and_hangup("Thank you for calling. Have a wonderful day. Goodbye!")
+        msg = "कॉल करने के लिए धन्यवाद! आपका दिन शुभ हो। नमस्ते!" if lang == "hi" \
+              else "Thank you for calling. Have a wonderful day. Goodbye!"
+        return twiml_say_and_hangup(msg, lang=lang)
 
     try:
         response = receptionist.process(speech)
@@ -208,29 +279,30 @@ def gather():
 
         if receptionist.is_done:
             del active_calls[call_sid]
-            return twiml_say_and_hangup(response)
+            return twiml_say_and_hangup(response, lang=lang)
 
-        return twiml_say_and_listen(response)
+        return twiml_say_and_listen(response, lang=lang)
 
     except Exception as e:
         print(f"Error processing input: {e}")
         traceback.print_exc()
         active_calls.pop(call_sid, None)
-        return twiml_say_and_hangup(
-            "I'm sorry, something went wrong. Please call back or speak to our team directly."
-        )
+        msg = "माफ़ करें, कुछ गड़बड़ हो गई। कृपया दोबारा कॉल करें।" if lang == "hi" \
+              else "I'm sorry, something went wrong. Please call back or speak to our team directly."
+        return twiml_say_and_hangup(msg, lang=lang)
 
 
 @app.route("/voice/no_input", methods=["POST"])
 def no_input():
     """Called when caller stays silent for too long."""
-    call_sid = request.form.get("CallSid")
+    call_sid     = request.form.get("CallSid")
     receptionist = active_calls.get(call_sid)
 
-    if receptionist:
-        return twiml_say_and_listen(
-            "Are you still there? Please go ahead and speak, I'm listening."
-        )
+    if receptionist and not isinstance(receptionist, dict):
+        lang = getattr(receptionist, "lang", "en")
+        msg  = "क्या आप अभी भी लाइन पर हैं? कृपया बोलिए।" if lang == "hi" \
+               else "Are you still there? Please go ahead and speak, I'm listening."
+        return twiml_say_and_listen(msg, lang=lang)
     return twiml_say_and_hangup("It seems you've disconnected. Thank you for calling. Goodbye!")
 
 
@@ -238,7 +310,7 @@ def no_input():
 def call_status():
     """Called when a call ends — cleanup."""
     call_sid = request.form.get("CallSid")
-    status = request.form.get("CallStatus")
+    status   = request.form.get("CallStatus")
     print(f"[{call_sid}] Call ended — status: {status}")
     active_calls.pop(call_sid, None)
     return "OK", 200

@@ -21,6 +21,101 @@ load_dotenv()
 #  Multiple variants per key → sounds less robotic
 # ═══════════════════════════════════════════════════════════════════════════
 
+TEMPLATES_HI = {
+    "greeting": [
+        "नमस्ते! {business} में आपका स्वागत है। मैं आपकी कैसे मदद कर सकती हूँ?",
+        "हेलो! आपने {business} को कॉल किया है। बताइए, मैं आपकी क्या सेवा कर सकती हूँ?",
+        "नमस्ते, {business} से बोल रही हूँ। आप कैसे हैं? मैं आपकी कैसे मदद करूँ?",
+    ],
+    "no_intent": [
+        "बिल्कुल! मैं आपके लिए {booking_word} बुक कर सकती हूँ, जानकारी दे सकती हूँ, या कैंसिलेशन में मदद कर सकती हूँ। आप क्या चाहते हैं?",
+        "ज़रूर! क्या आप {booking_word} बुक करना चाहते हैं, या कोई और जानकारी चाहिए?",
+        "हाँ बताइए! मैं {booking_word} बुक करने में, कैंसिल करने में, या जानकारी देने में मदद कर सकती हूँ।",
+    ],
+    "ask_service": [
+        "बढ़िया! हमारी सेवाएँ हैं: {services}। आप कौन सी सेवा लेना चाहेंगे?",
+        "ज़रूर! हम {services} की सुविधा देते हैं। आप क्या चुनना चाहेंगे?",
+        "हमारे पास {services} उपलब्ध है। आप किसके लिए बुकिंग करना चाहते हैं?",
+    ],
+    "ask_date": [
+        "बढ़िया! हम {days} को खुले रहते हैं। आप किस दिन आना चाहेंगे?",
+        "हम {days} को उपलब्ध हैं। आपके लिए कौन सा दिन ठीक रहेगा?",
+        "अच्छा! {days} को हमारी सेवा उपलब्ध है। कौन सी तारीख चाहिए आपको?",
+    ],
+    "show_slots": [
+        "{date} के लिए ये समय उपलब्ध हैं: {slots}। आप कौन सा समय चुनेंगे?",
+        "बढ़िया! {date} को {slots} का समय खाली है। कौन सा ठीक रहेगा?",
+        "{date} के लिए {slots} उपलब्ध है। आप कब आना चाहेंगे?",
+    ],
+    "slot_unavailable": [
+        "यह समय उपलब्ध नहीं है। लेकिन {slots} अभी भी खाली है। कौन सा चुनेंगे?",
+        "वो स्लॉट भर गया है। अभी {slots} उपलब्ध है। कौन सा ठीक रहेगा?",
+    ],
+    "no_slots": [
+        "{date} को कोई स्लॉट उपलब्ध नहीं है। हम {days} को खुले रहते हैं — कोई दूसरा दिन बताइए।",
+        "खेद है, {date} को सब स्लॉट भरे हुए हैं। {days} में से कोई दूसरा दिन चुनिए।",
+    ],
+    "ask_name": [
+        "आपका नाम क्या है?",
+        "बुकिंग किसके नाम पर करूँ?",
+        "कृपया अपना नाम बताइए।",
+        "और आपका नाम?",
+    ],
+    "ask_phone": [
+        "आपका फ़ोन नंबर बताइए।",
+        "संपर्क के लिए आपका मोबाइल नंबर क्या है?",
+        "कृपया अपना फ़ोन नंबर दें।",
+    ],
+    "confirm": [
+        "ठीक है, एक बार कन्फर्म करती हूँ — {name} जी, {service}, {date} को {time} बजे। क्या यह सही है?",
+        "मैं दोहराती हूँ — {name}, {service}, {date}, {time} बजे। सब ठीक है?",
+        "तो {name} जी के लिए {service}, {date} को {time} बजे। कन्फर्म करें?",
+    ],
+    "reconfirm": [
+        "एक बार और — {name} जी, {service}, {date} को {time} बजे। हाँ या नहीं?",
+        "क्षमा करें, फिर से बताइए — {name}, {service}, {date}, {time} — सही है?",
+    ],
+    "booked": [
+        "बुकिंग हो गई! {name} जी, आपका {service} {date} को {time} बजे कन्फर्म है। बुकिंग ID है {id}। मिलते हैं!",
+        "बढ़िया! {name} जी की {service} बुकिंग {date} को {time} बजे के लिए हो गई। ID: {id}। धन्यवाद!",
+        "{name} जी, आपकी {service} बुक हो गई — {date}, {time} बजे। Reference: {id}। शुभकामनाएँ!",
+    ],
+    "slot_taken": [
+        "अफ़सोस, वो स्लॉट अभी किसी और ने ले लिया! लेकिन {slots} अभी भी उपलब्ध है। कौन सा चुनेंगे?",
+        "वो समय अभी भर गया। {slots} खाली है — कौन सा ठीक रहेगा?",
+    ],
+    "cancel_ask_phone": [
+        "ज़रूर! जिस फ़ोन नंबर से बुकिंग हुई थी, वो बताइए।",
+        "बिल्कुल! बुकिंग वाला फ़ोन नंबर बताइए।",
+        "कोई बात नहीं! बुकिंग किस नंबर पर थी?",
+    ],
+    "cancel_confirmed": [
+        "कैंसिल हो गया! बुकिंग ID {booking_id} रद्द कर दी गई है। फिर मिलेंगे!",
+        "आपकी बुकिंग {booking_id} कैंसिल हो गई। कोई और मदद चाहिए?",
+    ],
+    "no_booking_found": [
+        "इस नंबर पर कोई बुकिंग नहीं मिली। क्या नंबर सही है?",
+        "माफ़ करें, इस नंबर से कोई बुकिंग नहीं है। शायद दूसरे नंबर से की हो?",
+    ],
+    "info": [
+        "हम {services} की सेवा देते हैं और {days} को {start_time} से {end_time} तक खुले रहते हैं। क्या बुकिंग करनी है?",
+        "हमारी सेवाएँ हैं {services}। हम {days}, {start_time} से {end_time} तक उपलब्ध हैं। बुकिंग करें?",
+    ],
+    "urgency": [
+        "समझ गई, यह ज़रूरी लग रहा है। कृपया सीधे क्लिनिक या इमरजेंसी सेवा से संपर्क करें।",
+        "यह इमरजेंसी लगती है। कृपया तुरंत डॉक्टर या अस्पताल से संपर्क करें।",
+    ],
+    "goodbye": [
+        "{business} को कॉल करने के लिए धन्यवाद! आपका दिन शुभ हो। नमस्ते!",
+        "धन्यवाद! {business} की ओर से आपको शुभकामनाएँ। फिर मिलेंगे!",
+    ],
+    "unclear": [
+        "माफ़ करें, मैंने ठीक से नहीं सुना। क्या आप फिर से बताएंगे?",
+        "कृपया एक बार और कहें, मुझे सुनाई नहीं दिया।",
+        "ज़रा फिर से बताइए — मैं समझ नहीं पाई।",
+    ],
+}
+
 TEMPLATES = {
     "greeting": [
         "Hey, thanks for calling {business}! How can I help you today?",
@@ -159,15 +254,15 @@ def _time_of_day():
     return "evening"
 
 
-def reply(key, **kwargs):
+def reply(key, lang="en", **kwargs):
     """Pick a random template and fill in placeholders."""
-    templates = TEMPLATES.get(key, ["How can I help you?"])
+    pool = TEMPLATES_HI if lang == "hi" else TEMPLATES
+    templates = pool.get(key) or TEMPLATES.get(key, ["How can I help you?"])
     template = random.choice(templates)
     kwargs.setdefault("time_of_day", _time_of_day())
     try:
         return template.format(**kwargs)
     except KeyError:
-        # Return template as-is if a placeholder is missing
         return template
 
 
@@ -333,7 +428,7 @@ def summarize_days(days):
 #  e.g. "Do you offer EMI?", "What's the price?", "How long does it take?"
 # ═══════════════════════════════════════════════════════════════════════════
 
-def groq_reply(user_text, business_name, services, days, start_time, end_time, booking_word="appointment"):
+def groq_reply(user_text, business_name, services, days, start_time, end_time, booking_word="appointment", lang="en"):
     """
     Call Groq (Llama 3) for natural off-script questions.
     Returns a short spoken response, or None if Groq is not configured / fails.
@@ -342,7 +437,21 @@ def groq_reply(user_text, business_name, services, days, start_time, end_time, b
     if not api_key or not user_text:
         return None
 
-    system_prompt = f"""You are a friendly voice receptionist for {business_name}.
+    if lang == "hi":
+        system_prompt = f"""आप {business_name} की एक friendly voice receptionist हैं।
+Business details:
+- Services: {', '.join(services) if isinstance(services, list) else services}
+- Open: {', '.join(days) if isinstance(days, list) else days}, {start_time} to {end_time}
+
+STRICT RULES (यह phone call है — इन्हें ज़रूर follow करें):
+1. MAX 2 छोटे वाक्यों में जवाब दें। इससे ज़्यादा नहीं।
+2. अगर caller बुकिंग करना चाहे तो कहें "बिल्कुल, मैं बुकिंग करती हूँ!" — system बाकी handle करेगा।
+3. अगर cancel करना हो तो कहें "ज़रूर, मैं help करती हूँ!" — system handle करेगा।
+4. Price या policy के बारे में कुछ न बनाएँ। कहें "इसके लिए सीधे हमसे संपर्क करें।"
+5. Natural और warm रहें — एक real receptionist की तरह।
+6. Hindi में बोलें। Bullet points या markdown का उपयोग न करें।"""
+    else:
+        system_prompt = f"""You are a friendly voice receptionist for {business_name}.
 Business details:
 - Services: {', '.join(services) if isinstance(services, list) else services}
 - Open: {', '.join(days) if isinstance(days, list) else days}, {start_time} to {end_time}
@@ -655,3 +764,60 @@ def extract(text, services=None):
         "name":    extract_name(text, services),
         "phone":   extract_phone(text),
     }
+
+
+# ── Hindi keyword helpers ───────────────────────────────────────────────────
+
+_HINDI_INTENT = {
+    "book":   ["बुक", "अपॉइंटमेंट", "appointment", "बुकिंग", "आना", "आना चाहता", "आना चाहती", "समय चाहिए", "book karna", "book"],
+    "cancel": ["कैंसिल", "रद्द", "नहीं आना", "cancel"],
+    "info":   ["जानकारी", "समय", "सेवा", "कितने बजे", "खुले", "services", "timing", "hours"],
+}
+
+_HINDI_DAY_MAP = {
+    "सोमवार": "monday", "mangalvar": "tuesday", "मंगलवार": "tuesday",
+    "बुधवार": "wednesday", "गुरुवार": "thursday", "शुक्रवार": "friday",
+    "शनिवार": "saturday", "रविवार": "sunday",
+    "आज": "today", "कल": "tomorrow", "परसों": "day after tomorrow",
+}
+
+_HINDI_NUM_MAP = {
+    "एक": "1", "दो": "2", "तीन": "3", "चार": "4", "पाँच": "5", "पांच": "5",
+    "छह": "6", "छः": "6", "सात": "7", "आठ": "8", "नौ": "9", "दस": "10",
+    "ग्यारह": "11", "बारह": "12",
+}
+
+
+def extract_hi(text, services=None):
+    """
+    Extract structured fields from Hindi caller speech.
+    Falls back to English extract() for anything not matched in Hindi.
+    """
+    t_lower = text.lower()
+    result = extract(text, services)   # start with English extraction as base
+
+    # Override intent from Hindi keywords
+    if not result["intent"]:
+        for intent, kws in _HINDI_INTENT.items():
+            if any(kw in text for kw in kws):
+                result["intent"] = intent
+                break
+
+    # Override date from Hindi day names / relative words
+    if not result["date"]:
+        today = datetime.now()
+        for hindi_word, eng_equiv in _HINDI_DAY_MAP.items():
+            if hindi_word in text:
+                # Re-run English extract on the equivalent English word
+                result["date"] = extract_date(eng_equiv)
+                break
+
+    # Replace Hindi number words in text before time extraction
+    if not result["time"]:
+        normalized = text
+        for hindi_num, digit in _HINDI_NUM_MAP.items():
+            normalized = normalized.replace(hindi_num, digit)
+        if "बजे" in normalized or "am" in normalized.lower() or "pm" in normalized.lower():
+            result["time"] = extract_time(normalized)
+
+    return result
