@@ -1,4 +1,5 @@
 import re
+import threading
 from datetime import datetime
 import brain
 import database
@@ -124,20 +125,22 @@ class Receptionist:
             # Step 3: cancel it and confirm
             database.cancel_booking(booking["id"])
             self.state = "done"
-            # Email alert to business owner
-            notifier.notify_owner_cancellation(
-                business_name  = self.business["name"],
-                owner_email    = self.business.get("contact_email", ""),
-                customer_phone = c["phone"],
-                booking_id     = booking["id"],
-            )
-            # SMS confirmation to customer
-            notifier.send_sms_cancellation(
-                to_phone      = self.caller_phone,
-                business_name = self.business["name"],
-                booking_id    = booking["id"],
-            )
-            return self._r("cancel_confirmed", booking_id=booking["id"])
+            # Send notifications in background
+            _bid = booking["id"]
+            def _notify_cancel():
+                notifier.notify_owner_cancellation(
+                    business_name  = self.business["name"],
+                    owner_email    = self.business.get("contact_email", ""),
+                    customer_phone = c["phone"],
+                    booking_id     = _bid,
+                )
+                notifier.send_sms_cancellation(
+                    to_phone      = self.caller_phone,
+                    business_name = self.business["name"],
+                    booking_id    = _bid,
+                )
+            threading.Thread(target=_notify_cancel, daemon=True).start()
+            return self._r("cancel_confirmed", booking_id=_bid)
 
         if c["intent"] in ("book", "reschedule"):
             return self._handle_booking()
@@ -234,27 +237,28 @@ class Receptionist:
         )
         if booking_id:
             self.state = "done"
-            # Email alert to business owner
-            notifier.notify_owner(
-                business_name  = self.business["name"],
-                owner_email    = self.business.get("contact_email", ""),
-                customer_name  = c["name"],
-                customer_phone = c["phone"],
-                service        = c["service"],
-                date_str       = _day_name(c["date"]),
-                time_str       = c["time"],
-                booking_id     = booking_id,
-            )
-            # SMS confirmation to customer (uses real caller number from Twilio)
-            notifier.send_sms_confirmation(
-                to_phone      = self.caller_phone,
-                business_name = self.business["name"],
-                customer_name = c["name"],
-                service       = c["service"],
-                date_str      = _day_name(c["date"]),
-                time_str      = c["time"],
-                booking_id    = booking_id,
-            )
+            # Send email + SMS in background so voice response returns instantly
+            def _notify():
+                notifier.notify_owner(
+                    business_name  = self.business["name"],
+                    owner_email    = self.business.get("contact_email", ""),
+                    customer_name  = c["name"],
+                    customer_phone = c["phone"],
+                    service        = c["service"],
+                    date_str       = _day_name(c["date"]),
+                    time_str       = c["time"],
+                    booking_id     = booking_id,
+                )
+                notifier.send_sms_confirmation(
+                    to_phone      = self.caller_phone,
+                    business_name = self.business["name"],
+                    customer_name = c["name"],
+                    service       = c["service"],
+                    date_str      = _day_name(c["date"]),
+                    time_str      = c["time"],
+                    booking_id    = booking_id,
+                )
+            threading.Thread(target=_notify, daemon=True).start()
             return self._r(
                 "booked",
                 id      = booking_id,
