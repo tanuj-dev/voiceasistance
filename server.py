@@ -106,25 +106,28 @@ def load_phone_map():
 
 
 def _voice_params(lang):
-    """Return (voice, language) tuple for Twilio <Say> based on lang."""
+    """Return (tts_voice, tts_lang, stt_lang) based on lang."""
     if lang == "hi":
-        return "Polly.Aditi", "hi-IN"
-    return "alice", "en-IN"
+        # TTS: Polly.Aditi speaks Hindi naturally
+        # STT: en-IN handles Indian accent English + Hinglish mix perfectly
+        #      (hi-IN transcribes English words into Devanagari causing match failures)
+        return "Polly.Aditi", "hi-IN", "hi-IN,en-IN"
+    return "alice", "en-IN", "en-IN"
 
 
 def twiml_say_and_listen(text, action="/voice/gather", lang="en"):
     """Speak text then wait for caller's voice input."""
-    voice, language = _voice_params(lang)
+    tts_voice, tts_lang, stt_lang = _voice_params(lang)
     resp = VoiceResponse()
     gather = Gather(
         input="speech",
         action=action,
         method="POST",
         speech_timeout="auto",
-        language=language,
+        language=stt_lang,
         enhanced=True,
     )
-    gather.say(text, voice=voice, language=language)
+    gather.say(text, voice=tts_voice, language=tts_lang)
     resp.append(gather)
     resp.redirect("/voice/no_input", method="POST")
     return Response(str(resp), mimetype="text/xml")

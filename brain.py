@@ -900,35 +900,41 @@ def _match_service_hi(text, services):
 
 def extract_hi(text, services=None):
     """
-    Extract structured fields from Hindi caller speech.
-    Falls back to English extract() for anything not matched in Hindi.
+    Extract structured fields from a Hindi or Hinglish caller.
+    Caller may speak pure Hindi, pure English, or a mix — all handled.
+    Pass 1: full English extraction (handles English words regardless of lang)
+    Pass 2: Hindi/Devanagari overrides for anything not matched
     """
-    result = extract(text, services)   # English base pass
+    # Pass 1 — English extraction (works for English words in any script context)
+    result = extract(text, services)
 
-    # Override service with Hindi-aware matching
+    # Service — try Hindi-aware matcher if English pass missed it
     if not result["service"]:
         result["service"] = _match_service_hi(text, services or [])
 
-    # Override intent from Hindi keywords
+    # Intent — try Hindi keywords if English pass missed it
     if not result["intent"]:
         for intent, kws in _HINDI_INTENT.items():
             if any(kw in text for kw in kws):
                 result["intent"] = intent
                 break
 
-    # Override date from Hindi day names / relative words
+    # Date — try Hindi day names AND English day names explicitly
     if not result["date"]:
+        # Hindi Devanagari day names
         for hindi_word, eng_equiv in _HINDI_DAY_MAP.items():
             if hindi_word in text:
                 result["date"] = extract_date(eng_equiv)
                 break
+    if not result["date"]:
+        # English day names as fallback (caller spoke English in Hindi mode)
+        result["date"] = extract_date(text)
 
-    # Hindi number words → digits before time extraction
+    # Time — Hindi number words + "बजे", then English fallback
     if not result["time"]:
         normalized = text
         for hindi_num, digit in _HINDI_NUM_MAP.items():
             normalized = normalized.replace(hindi_num, digit)
-        if "बजे" in normalized or "am" in normalized.lower() or "pm" in normalized.lower():
-            result["time"] = extract_time(normalized)
+        result["time"] = extract_time(normalized)
 
     return result
