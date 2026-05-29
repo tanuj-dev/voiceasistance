@@ -36,7 +36,9 @@ def create_tables():
                     slot_duration INTEGER DEFAULT 30,
                     timezone TEXT DEFAULT 'Asia/Kolkata',
                     contact_email TEXT DEFAULT '',
-                    client_password TEXT DEFAULT ''
+                    client_password TEXT DEFAULT '',
+                    call_mode TEXT DEFAULT 'always',
+                    twilio_number TEXT DEFAULT ''
                 )
             """)
             cur.execute("""
@@ -171,6 +173,32 @@ def set_client_password(business_id, password):
                 "UPDATE businesses SET client_password = %s WHERE id = %s",
                 (password, business_id)
             )
+        conn.commit()
+
+
+def set_call_mode(business_id, call_mode, twilio_number=""):
+    """Update call mode and twilio number for a business."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE businesses SET call_mode = %s, twilio_number = %s WHERE id = %s",
+                (call_mode, twilio_number, business_id)
+            )
+        conn.commit()
+
+
+def migrate_call_mode_columns():
+    """Add call_mode and twilio_number columns if they don't exist."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE businesses
+                ADD COLUMN IF NOT EXISTS call_mode TEXT DEFAULT 'always'
+            """)
+            cur.execute("""
+                ALTER TABLE businesses
+                ADD COLUMN IF NOT EXISTS twilio_number TEXT DEFAULT ''
+            """)
         conn.commit()
 
 

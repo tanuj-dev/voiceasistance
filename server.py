@@ -88,6 +88,7 @@ def client_required(f):
 
 # Ensure all tables exist (safe to run on every startup)
 database.create_tables()
+database.migrate_call_mode_columns()
 
 # In-memory store: { call_sid: Receptionist }
 active_calls = {}
@@ -142,11 +143,36 @@ def twiml_say_and_hangup(text, lang="en"):
     return Response(str(resp), mimetype="text/xml")
 
 
-def get_business_for_call(to_number):
-    """Find which business this call is for based on the called number."""
+def get_business_for_call(to_number, forwarded_from=None):
+    """
+    Find which business this call is for.
+    Priority:
+    1. ForwardedFrom — client's existing Indian number forwarded to our Twilio number
+    2. To           — direct call to a Twilio number mapped to a business
+    3. DEFAULT_BUSINESS_ID env var
+    4. First business in DB
+    """
     phone_map = load_phone_map()
-    if to_number and to_number in phone_map:
-        return phone_map[to_number]
+
+    # Strip +91 / + prefix for flexible matching
+    def normalise(n):
+        if not n:
+            return ""
+        n = re.sub(r"\D", "", n)   # digits only
+        if n.startswith("91") and len(n) == 12:
+            n = n[2:]              # strip country code → 10 digits
+        return n
+
+    ff_clean  = normalise(forwarded_from)
+    to_clean  = normalise(to_number)
+
+    for raw_key, biz_id in phone_map.items():
+        key_clean = normalise(raw_key)
+        if ff_clean and key_clean == ff_clean:
+            return biz_id          # matched via client's forwarded number
+        if to_clean and key_clean == to_clean:
+            return biz_id          # matched via Twilio number directly
+
     # Fallback: use default business from .env
     default = os.getenv("DEFAULT_BUSINESS_ID", "")
     if default:
@@ -165,13 +191,14 @@ def get_business_for_call(to_number):
 @app.route("/voice/answer", methods=["POST"])
 def answer():
     """Twilio calls this when a new call comes in. Ask language preference first."""
-    call_sid    = request.form.get("CallSid")
-    to_number   = request.form.get("To")
-    from_number = request.form.get("From")
+    call_sid       = request.form.get("CallSid")
+    to_number      = request.form.get("To")
+    from_number    = request.form.get("From")
+    forwarded_from = request.form.get("ForwardedFrom")  # client's existing number
 
-    print(f"\n📞 Incoming call: {from_number} → {to_number} [{call_sid}]")
+    print(f"\n📞 Incoming call: {from_number} → {to_number} (fwd: {forwarded_from}) [{call_sid}]")
 
-    business_id = get_business_for_call(to_number)
+    business_id = get_business_for_call(to_number, forwarded_from)
     if not business_id:
         return twiml_say_and_hangup(
             "Thank you for calling. We are currently unavailable. Please try again later."
@@ -523,6 +550,53 @@ def api_businesses():
     return jsonify(database.get_all_businesses())
 
 
+@app.route("/admin/api/businesses/<business_id>/call-mode", methods=["PUT"])
+@admin_required
+def api_set_call_mode_admin(business_id):
+    data = request.get_json() or {}
+    call_mode = data.get("call_mode", "always")
+    twilio_number = data.get("twilio_number", "")
+    if call_mode not in ("always", "ring_first"):
+        return jsonify({"error": "Invalid call_mode"}), 400
+    database.set_call_mode(business_id, call_mode, twilio_number)
+    return jsonify({"success": True})
+
+
+@app.route("/client/api/call-mode", methods=["GET"])
+@client_required
+def client_get_call_mode(_business_id=None, _business_name=None):
+    biz = database.get_business(_business_id)
+    call_mode = biz.get("call_mode", "always")
+    twilio_number = biz.get("twilio_number", "")
+    # Generate dial code based on mode
+    if twilio_number:
+        clean = twilio_number.replace("+", "").replace(" ", "")
+        if call_mode == "always":
+            dial_code = f"*21*+{clean}#"
+        else:
+            dial_code = f"*61*+{clean}# (no answer)  |  *67*+{clean}# (busy)"
+    else:
+        dial_code = "Set your Twilio number in admin settings"
+    return jsonify({
+        "call_mode": call_mode,
+        "twilio_number": twilio_number,
+        "dial_code": dial_code,
+    })
+
+
+@app.route("/client/api/call-mode", methods=["PUT"])
+@client_required
+def client_set_call_mode(_business_id=None, _business_name=None):
+    data = request.get_json() or {}
+    call_mode = data.get("call_mode", "always")
+    if call_mode not in ("always", "ring_first"):
+        return jsonify({"error": "Invalid call_mode"}), 400
+    biz = database.get_business(_business_id)
+    twilio_number = biz.get("twilio_number", "")
+    database.set_call_mode(_business_id, call_mode, twilio_number)
+    return jsonify({"success": True})
+
+
 @app.route("/admin/api/businesses", methods=["POST"])
 @admin_required
 def api_create_business():
@@ -539,6 +613,8 @@ def api_create_business():
     timezone        = data.get("timezone",  "Asia/Kolkata")
     contact_email   = data.get("contact_email", "")
     client_password = data.get("client_password", "")
+    twilio_number   = data.get("twilio_number", "")
+    call_mode       = data.get("call_mode", "always")
 
     if not business_id:
         return jsonify({"error": "Business ID is required"}), 400
@@ -553,6 +629,8 @@ def api_create_business():
     )
     if client_password:
         database.set_client_password(business_id, client_password)
+    if twilio_number or call_mode:
+        database.set_call_mode(business_id, call_mode, twilio_number)
 
     return jsonify({"success": True, "id": business_id, "name": name})
 
