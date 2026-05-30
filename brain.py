@@ -114,6 +114,11 @@ TEMPLATES_HI = {
         "कृपया एक बार और कहें, मुझे सुनाई नहीं दिया।",
         "ज़रा फिर से बताइए — मैं समझ नहीं पाई।",
     ],
+    "what_to_change": [
+        "कोई बात नहीं! क्या बदलना है — नाम, तारीख, समय, या सेवा?",
+        "ज़रूर! बताइए क्या बदलना है।",
+        "बिल्कुल! नाम, तारीख, या समय — क्या अपडेट करूँ?",
+    ],
 }
 
 TEMPLATES = {
@@ -241,6 +246,11 @@ TEMPLATES = {
         "Just to double-check — {name} for {service} on {date} at {time}. Yes or no?",
         "Sorry, could you confirm? I've got {name}, {service}, {date} at {time} — is that right?",
         "Let me read that back one more time — {name}, {service} on {date} at {time}. Correct?",
+    ],
+    "what_to_change": [
+        "No problem! What would you like to change — the name, date, time, or service?",
+        "Sure, happy to update that! Just tell me what you'd like to change.",
+        "Of course! What needs to be different — name, date, or time?",
     ],
 }
 

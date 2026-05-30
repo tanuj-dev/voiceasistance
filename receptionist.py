@@ -230,9 +230,12 @@ class Receptionist:
         if not c["name"]:
             return self._r("ask_name")
 
-        # 6. Phone
+        # 6. Phone — use caller's own number automatically; only ask if unavailable
         if not c["phone"]:
-            return self._r("ask_phone")
+            if self.caller_phone:
+                c["phone"] = self.caller_phone
+            else:
+                return self._r("ask_phone")
 
         # 7. Confirmation
         if self.state != "confirming":
@@ -245,8 +248,9 @@ class Receptionist:
                 time    = c["time"],
             )
 
-        # 8. Finalise after caller says yes
+        # 8. Check caller's response to confirmation
         last_words = getattr(self, "_last_user", "").lower()
+
         YES_WORDS = [
             # English
             "yes", "correct", "confirm", "sure", "right",
@@ -256,10 +260,33 @@ class Receptionist:
             "bilkul", "बिल्कुल", "sahi", "सही", "theek", "ठीक",
             "haan", "han", "ha ", " ha",
         ]
+        NO_WORDS = [
+            "no", "nope", "wrong", "incorrect", "change", "different",
+            "नहीं", "नही", "गलत", "बदलो", "बदलना",
+        ]
+
         if any(w in last_words for w in YES_WORDS):
             return self._finalise()
 
-        # Unclear answer — re-ask
+        if any(w in last_words for w in NO_WORDS):
+            # User wants to change something — extraction already ran in process()
+            # and may have updated fields (e.g. "no, put it under Sarah").
+            # Reset state so we flow back through the booking steps with new values.
+            self.state = "booking"
+            # If they mentioned a specific field to change, clear it so we re-ask
+            if "name" in last_words:
+                c["name"] = None
+            elif "date" in last_words or "day" in last_words:
+                c["date"] = None
+                c["time"] = None
+                self.available_slots = []
+            elif "time" in last_words or "slot" in last_words:
+                c["time"] = None
+            elif "service" in last_words:
+                c["service"] = None
+            return self._r("what_to_change")
+
+        # Ambiguous — re-ask yes/no
         return self._r(
             "reconfirm",
             name    = c["name"],
