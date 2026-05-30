@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 import database
 from receptionist import Receptionist
 from functools import wraps
-import hmac, hashlib, json, base64
+import hmac, hashlib, json, base64, re
 
 load_dotenv()
 
