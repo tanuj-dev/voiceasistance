@@ -326,8 +326,15 @@ def no_input():
 
     if receptionist and not isinstance(receptionist, dict):
         lang = getattr(receptionist, "lang", "en")
-        msg  = "क्या आप अभी भी लाइन पर हैं? कृपया बोलिए।" if lang == "hi" \
-               else "Are you still there? Please go ahead and speak, I'm listening."
+        # Re-ask whatever question we were waiting on, with a brief "still there?" prefix
+        last_q = getattr(receptionist, "_last_response", None)
+        if last_q:
+            prefix = "क्या आप अभी भी यहाँ हैं? " if lang == "hi" \
+                     else "Just checking — are you still there? "
+            msg = prefix + last_q
+        else:
+            msg = "क्या आप अभी भी लाइन पर हैं? कृपया बोलिए।" if lang == "hi" \
+                  else "Are you still there? Please go ahead and speak."
         return twiml_say_and_listen(msg, lang=lang)
     return twiml_say_and_hangup("It seems you've disconnected. Thank you for calling. Goodbye!")
 

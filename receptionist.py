@@ -101,16 +101,30 @@ class Receptionist:
 
     def greeting(self):
         """Opening greeting — no user input yet."""
-        return self._r("greeting")
+        msg = self._r("greeting")
+        self._last_response = msg
+        return msg
 
     # ── State router ──────────────────────────────────────────────────────
+
+    # Simple words that don't need Groq — just ask what they want
+    _GREETING_WORDS = {
+        "hi", "hello", "hey", "helo", "hii", "yo", "hiya",
+        "नमस्ते", "हेलो", "हाय",
+    }
 
     def _route(self):
         c = self.collected
 
         if not c["intent"]:
+            last = getattr(self, "_last_user", "").strip().lower()
+            # If it's just a greeting word, skip Groq — just ask what they want
+            if last in self._GREETING_WORDS or len(last.split()) <= 2 and any(
+                w in last for w in self._GREETING_WORDS
+            ):
+                return self._r("no_intent")
             groq = brain.groq_reply(
-                user_text     = getattr(self, "_last_user", ""),
+                user_text     = last,
                 business_name = self.business["name"],
                 services      = self.business["services"],
                 days          = self.business["working_days"],
@@ -321,7 +335,9 @@ class Receptionist:
         urgent_check = URGENT_WORDS + (URGENT_HI if self.lang == "hi" else [])
         if any(w in user_text.lower() for w in urgent_check):
             self.state = "done"
-            return self._r("urgency")
+            response = self._r("urgency")
+            self._last_response = response
+            return response
 
         extracted = brain.extract_hi(user_text, self.business["services"]) \
                     if self.lang == "hi" else \
@@ -338,7 +354,9 @@ class Receptionist:
         if extracted.get("phone"):
             c["phone"] = extracted["phone"]
 
-        return self._route()
+        response = self._route()
+        self._last_response = response
+        return response
 
     @property
     def is_done(self):
