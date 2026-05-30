@@ -207,7 +207,14 @@ def answer():
     # Store business_id + caller so /voice/lang can create the Receptionist
     active_calls[call_sid] = {"business_id": business_id, "from_number": from_number}
 
-    lang_prompt = "Hello! Which language do you prefer, English or Hindi?"
+    # Look up the business name for the welcome message
+    biz = database.get_business(business_id)
+    biz_name = biz["name"] if biz else "our clinic"
+
+    lang_prompt = (
+        f"Welcome to {biz_name}! "
+        "Which language do you prefer — English or Hindi?"
+    )
     resp = VoiceResponse()
     gather = Gather(
         input="speech",
