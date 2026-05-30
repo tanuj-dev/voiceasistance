@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a8a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a78bfa;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="200" cy="200" r="190" fill="url(#bgGrad)" />
+
+  <!-- Letter R -->
+  <text x="90" y="270" font-family="Georgia, serif" font-size="210" font-weight="900" fill="white" opacity="0.95">R</text>
+
+  <!-- Sound wave lines replacing the leg of R -->
+  <line x1="218" y1="210" x2="310" y2="310" stroke="url(#waveGrad)" stroke-width="14" stroke-linecap="round" opacity="0.3"/>
+
+  <!-- Wave arcs on right side -->
+  <path d="M 280 155 Q 320 185 280 215" fill="none" stroke="url(#waveGrad)" stroke-width="9" stroke-linecap="round"/>
+  <path d="M 295 130 Q 355 185 295 240" fill="none" stroke="url(#waveGrad)" stroke-width="9" stroke-linecap="round" opacity="0.75"/>
+  <path d="M 310 105 Q 390 185 310 265" fill="none" stroke="url(#waveGrad)" stroke-width="9" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Bottom text -->
+  <text x="200" y="360" font-family="Arial, sans-serif" font-size="36" font-weight="700" fill="white" text-anchor="middle" letter-spacing="6" opacity="0.9">RINGREPLY</text>
+
+</svg>
