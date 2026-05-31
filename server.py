@@ -495,6 +495,154 @@ def whatsapp_status():
     return "OK", 200
 
 
+# ------------------------------------------------------------------ #
+#  Meta WhatsApp Cloud API                                            #
+# ------------------------------------------------------------------ #
+
+def _meta_send(to_number, text):
+    """Send a WhatsApp message via Meta Cloud API."""
+    import requests as req
+    phone_number_id = os.getenv("META_PHONE_NUMBER_ID")
+    access_token    = os.getenv("META_ACCESS_TOKEN")
+    url  = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": text}
+    }
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type":  "application/json"
+    }
+    resp = req.post(url, json=data, headers=headers, timeout=10)
+    print(f"[Meta WA] sent to {to_number}: {resp.status_code} {resp.text[:120]}")
+    return resp
+
+
+@app.route("/whatsapp/meta", methods=["GET"])
+def meta_webhook_verify():
+    """Meta calls this GET to verify the webhook URL."""
+    mode      = request.args.get("hub.mode")
+    token     = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    verify_token = os.getenv("META_VERIFY_TOKEN", "ringreply2024")
+
+    if mode == "subscribe" and token == verify_token:
+        print("[Meta WA] Webhook verified ✅")
+        return challenge, 200
+    print(f"[Meta WA] Webhook verification FAILED — token mismatch")
+    return "Forbidden", 403
+
+
+@app.route("/whatsapp/meta", methods=["POST"])
+def meta_webhook_message():
+    """Meta calls this POST for every incoming WhatsApp message."""
+    data = request.get_json(silent=True) or {}
+
+    # Extract message from Meta's payload structure
+    try:
+        entry   = data["entry"][0]
+        changes = entry["changes"][0]
+        value   = changes["value"]
+
+        # Ignore delivery/read receipts — only process actual messages
+        if "messages" not in value:
+            return "OK", 200
+
+        msg         = value["messages"][0]
+        from_number = msg["from"]          # "919876543210" (no +)
+        msg_type    = msg.get("type", "")
+
+        # Only handle text messages for now
+        if msg_type != "text":
+            _meta_send(from_number,
+                "Sorry, I can only process text messages right now. "
+                "Please type your request.")
+            return "OK", 200
+
+        body = msg["text"]["body"].strip()
+        print(f"\n💬 Meta WA: {from_number} → {body!r}")
+
+    except (KeyError, IndexError):
+        return "OK", 200   # malformed payload — ignore silently
+
+    # Normalise number to E.164 format (+91XXXXXXXXXX)
+    phone_e164 = f"+{from_number}"
+
+    now = time.time()
+
+    # Expire stale sessions
+    session_key = f"meta:{phone_e164}"
+    if session_key in wa_sessions:
+        if now - wa_session_times.get(session_key, 0) > WA_SESSION_TIMEOUT:
+            del wa_sessions[session_key]
+            wa_session_times.pop(session_key, None)
+            print(f"[Meta WA] Session expired for {phone_e164} — starting fresh")
+
+    wa_session_times[session_key] = now
+
+    # Determine business (use default for now — extend later)
+    biz_id = os.getenv("DEFAULT_BUSINESS_ID", "")
+    if not biz_id:
+        businesses = database.get_all_businesses()
+        biz_id = businesses[0]["id"] if businesses else None
+    if not biz_id:
+        _meta_send(from_number, "Sorry, no business configured yet.")
+        return "OK", 200
+
+    # ── New conversation ──────────────────────────────────────────────
+    if session_key not in wa_sessions:
+        lang = _detect_lang_from_text(body)
+        try:
+            r = Receptionist(biz_id, caller_phone=phone_e164, lang=lang)
+            wa_sessions[session_key] = r
+        except Exception as e:
+            print(f"[Meta WA] Error creating receptionist: {e}")
+            _meta_send(from_number, "Sorry, something went wrong. Please try again.")
+            return "OK", 200
+
+        greeting = r.greeting()
+        if not body or body.lower() in ("hi", "hello", "hey", "start",
+                                         "हाय", "हेलो", "नमस्ते"):
+            _meta_send(from_number, greeting)
+        else:
+            reply = r.process(body)
+            if r.is_done:
+                del wa_sessions[session_key]
+            _meta_send(from_number, f"{greeting}\n\n{reply}")
+        return "OK", 200
+
+    # ── Existing conversation ─────────────────────────────────────────
+    r = wa_sessions[session_key]
+
+    bye_words = ["bye", "goodbye", "stop", "exit", "बाय", "धन्यवाद", "बंद करो"]
+    if any(w in body.lower() for w in bye_words):
+        del wa_sessions[session_key]
+        lang = getattr(r, "lang", "en")
+        msg  = "शुक्रिया! फिर मिलेंगे। 😊" if lang == "hi" \
+               else "Thanks for chatting! Have a great day. 😊"
+        _meta_send(from_number, msg)
+        return "OK", 200
+
+    try:
+        reply = r.process(body)
+        print(f"[Meta WA] Assistant: {reply}")
+        if r.is_done:
+            del wa_sessions[session_key]
+        _meta_send(from_number, reply)
+    except Exception as e:
+        print(f"[Meta WA] Error: {e}")
+        traceback.print_exc()
+        wa_sessions.pop(session_key, None)
+        lang = getattr(r, "lang", "en")
+        err  = "माफ़ करें, कुछ गड़बड़ हो गई। Hi भेजकर दोबारा शुरू करें।" if lang == "hi" \
+               else "Sorry, something went wrong. Send 'Hi' to start again."
+        _meta_send(from_number, err)
+
+    return "OK", 200
+
+
 @app.route("/health", methods=["GET"])
 def health():
     businesses = database.get_all_businesses()
