@@ -8,10 +8,12 @@ Webhook URLs to set in Twilio:
 """
 
 import os
+import time
 import traceback
 from flask import Flask, request, Response, jsonify, send_file, session, redirect, url_for
 from flask_cors import CORS
 from twilio.twiml.voice_response import VoiceResponse, Gather
+from twilio.twiml.messaging_response import MessagingResponse
 from twilio.jwt.access_token import AccessToken
 from twilio.jwt.access_token.grants import VoiceGrant
 from dotenv import load_dotenv
@@ -92,6 +94,12 @@ database.migrate_call_mode_columns()
 
 # In-memory store: { call_sid: Receptionist }
 active_calls = {}
+
+# ── WhatsApp session store ────────────────────────────────────────────────
+# { "whatsapp:+91XXXXXXXXXX": Receptionist }
+wa_sessions      = {}
+wa_session_times = {}   # last activity timestamps for timeout
+WA_SESSION_TIMEOUT = 1800   # 30 minutes of inactivity = fresh conversation
 
 # Map Twilio phone numbers → business IDs
 # Set these in .env as: PHONE_MAP=+911234567890:tanuj_dental,+910987654321:barber_001
@@ -353,6 +361,137 @@ def call_status():
     status   = request.form.get("CallStatus")
     print(f"[{call_sid}] Call ended — status: {status}")
     active_calls.pop(call_sid, None)
+    return "OK", 200
+
+
+# ------------------------------------------------------------------ #
+#  WhatsApp                                                           #
+# ------------------------------------------------------------------ #
+
+def _wa_reply(text, media_url=None):
+    """Build a TwiML MessagingResponse and return it as a Flask Response."""
+    resp = MessagingResponse()
+    msg  = resp.message(text)
+    if media_url:
+        msg.media(media_url)
+    return Response(str(resp), mimetype="text/xml")
+
+
+def _detect_lang_from_text(text):
+    """Return 'hi' if the message contains Devanagari characters, else 'en'."""
+    return "hi" if re.search(r"[ऀ-ॿ]", text) else "en"
+
+
+def _get_wa_business(to_number):
+    """
+    Map the WhatsApp 'To' number to a business ID.
+    Strips the 'whatsapp:' prefix before checking PHONE_MAP.
+    Falls back to DEFAULT_BUSINESS_ID or first business in DB.
+    """
+    clean = to_number.replace("whatsapp:", "").strip()
+    phone_map = load_phone_map()
+
+    def normalise(n):
+        n = re.sub(r"\D", "", n)
+        if n.startswith("91") and len(n) == 12:
+            n = n[2:]
+        return n
+
+    clean_norm = normalise(clean)
+    for raw_key, biz_id in phone_map.items():
+        if normalise(raw_key) == clean_norm:
+            return biz_id
+
+    default = os.getenv("DEFAULT_BUSINESS_ID", "")
+    if default:
+        return default
+    businesses = database.get_all_businesses()
+    return businesses[0]["id"] if businesses else None
+
+
+@app.route("/whatsapp/message", methods=["POST"])
+def whatsapp_message():
+    """Twilio calls this for every incoming WhatsApp message."""
+    from_number = request.form.get("From", "")   # "whatsapp:+919876543210"
+    to_number   = request.form.get("To",   "")   # your WhatsApp number
+    body        = request.form.get("Body",  "").strip()
+
+    print(f"\n💬 WhatsApp: {from_number} → {body!r}")
+
+    biz_id = _get_wa_business(to_number)
+    if not biz_id:
+        return _wa_reply("Sorry, this number isn't configured yet. Please contact support.")
+
+    now = time.time()
+
+    # Expire stale sessions
+    if from_number in wa_sessions:
+        if now - wa_session_times.get(from_number, 0) > WA_SESSION_TIMEOUT:
+            del wa_sessions[from_number]
+            wa_session_times.pop(from_number, None)
+            print(f"[WA] Session expired for {from_number} — starting fresh")
+
+    wa_session_times[from_number] = now
+
+    # ── New conversation ──────────────────────────────────────────────
+    if from_number not in wa_sessions:
+        # Detect language from first message (Devanagari = Hindi)
+        lang = _detect_lang_from_text(body)
+        try:
+            r = Receptionist(biz_id, caller_phone=from_number, lang=lang)
+            wa_sessions[from_number] = r
+        except Exception as e:
+            print(f"[WA] Error creating receptionist: {e}")
+            return _wa_reply("Sorry, something went wrong. Please try again in a moment.")
+
+        # Send greeting first, then process their opening message if not empty
+        greeting = r.greeting()
+        if not body or body.lower() in ("hi", "hello", "hey", "start",
+                                         "हाय", "हेलो", "नमस्ते"):
+            # Just greet — wait for next message
+            return _wa_reply(greeting)
+        else:
+            # They opened with intent ("I want to book") — process it
+            reply = r.process(body)
+            if r.is_done:
+                del wa_sessions[from_number]
+            return _wa_reply(f"{greeting}\n\n{reply}")
+
+    # ── Existing conversation ─────────────────────────────────────────
+    r = wa_sessions[from_number]
+
+    # Handle "bye" / end conversation
+    bye_words = ["bye", "goodbye", "stop", "cancel chat", "exit",
+                 "बाय", "धन्यवाद", "बंद करो"]
+    if any(w in body.lower() for w in bye_words):
+        del wa_sessions[from_number]
+        lang = getattr(r, "lang", "en")
+        msg  = "शुक्रिया! फिर मिलेंगे। 😊" if lang == "hi" \
+               else "Thanks for chatting! Have a great day. 😊"
+        return _wa_reply(msg)
+
+    try:
+        reply = r.process(body)
+        print(f"[WA] {from_number} → Assistant: {reply}")
+        if r.is_done:
+            del wa_sessions[from_number]
+        return _wa_reply(reply)
+    except Exception as e:
+        print(f"[WA] Error processing message: {e}")
+        traceback.print_exc()
+        wa_sessions.pop(from_number, None)
+        lang = getattr(r, "lang", "en")
+        msg  = "माफ़ करें, कुछ गड़बड़ हो गई। कृपया दोबारा शुरू करें।" if lang == "hi" \
+               else "Sorry, something went wrong. Please send 'Hi' to start again."
+        return _wa_reply(msg)
+
+
+@app.route("/whatsapp/status", methods=["POST"])
+def whatsapp_status():
+    """Delivery status updates from Twilio — log and ignore."""
+    sid    = request.form.get("MessageSid", "")
+    status = request.form.get("MessageStatus", "")
+    print(f"[WA status] {sid} → {status}")
     return "OK", 200
 
 
