@@ -64,13 +64,24 @@
       text-align: left; font-size: 11px; color: #666;
     }
     .log-entry { padding: 3px 0; border-bottom: 1px solid #eee; }
+    .biz-select {
+      width: 100%; padding: 10px 12px; border-radius: 10px;
+      border: 1.5px solid #e2e8f0; font-size: 14px; color: #1a1a2e;
+      margin-bottom: 16px; background: #f8fafc; cursor: pointer;
+      outline: none;
+    }
+    .biz-select:focus { border-color: #6366f1; }
   </style>
 </head>
 <body>
 <div class="phone">
-  <div class="logo">🦷</div>
-  <h2>Tanuj Dental Clinic</h2>
+  <div class="logo" id="bizLogo">🦷</div>
+  <h2 id="bizName">Tanuj Dental Clinic</h2>
   <p class="subtitle">AI Receptionist — Browser Test</p>
+  <select class="biz-select" id="bizSelect" onchange="onBizChange()">
+    <option value="tanuj_dental" data-logo="🦷" data-name="Tanuj Dental Clinic">🦷 Tanuj Dental Clinic</option>
+    <option value="premier_cars" data-logo="🚗" data-name="Premier Cars Showroom">🚗 Premier Cars Showroom</option>
+  </select>
   <div class="number">+1 239 423 8893</div>
   <div class="status" id="status">Initialising...</div>
   <button class="btn btn-call"   id="btnCall"   disabled onclick="makeCall()">📞 Call Now</button>
@@ -80,6 +91,16 @@
 
 <script>
   let device, call;
+  let selectedBizId = 'tanuj_dental';
+
+  function onBizChange() {
+    const sel = document.getElementById('bizSelect');
+    const opt = sel.options[sel.selectedIndex];
+    selectedBizId = sel.value;
+    document.getElementById('bizLogo').textContent = opt.dataset.logo;
+    document.getElementById('bizName').textContent = opt.dataset.name;
+    log('Switched to: ' + opt.dataset.name);
+  }
 
   function log(msg) {
     const el = document.getElementById('log');
@@ -136,7 +157,7 @@
       document.getElementById('btnHangup').disabled = false;
       log('Dialling +12394238893...');
 
-      call = await device.connect({ params: { To: '+12394238893' } });
+      call = await device.connect({ params: { To: '+12394238893', BusinessId: selectedBizId } });
 
       call.on('accept',     ()  => { setStatus('Connected — speak now 🎙️', 'calling'); log('Call accepted'); });
       call.on('disconnect', ()  => {

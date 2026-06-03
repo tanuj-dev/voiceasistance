@@ -203,10 +203,15 @@ def answer():
     to_number      = request.form.get("To")
     from_number    = request.form.get("From")
     forwarded_from = request.form.get("ForwardedFrom")  # client's existing number
+    browser_biz_id = request.form.get("BusinessId")    # browser phone business selector
 
     print(f"\n📞 Incoming call: {from_number} → {to_number} (fwd: {forwarded_from}) [{call_sid}]")
 
-    business_id = get_business_for_call(to_number, forwarded_from)
+    # Browser phone passes BusinessId directly — use it if valid
+    if browser_biz_id and database.get_business(browser_biz_id):
+        business_id = browser_biz_id
+    else:
+        business_id = get_business_for_call(to_number, forwarded_from)
     if not business_id:
         return twiml_say_and_hangup(
             "Thank you for calling. We are currently unavailable. Please try again later."
@@ -916,6 +921,7 @@ def api_create_business():
     client_password = data.get("client_password", "")
     twilio_number   = data.get("twilio_number", "")
     call_mode       = data.get("call_mode", "always")
+    location        = data.get("location", "")
 
     if not business_id:
         return jsonify({"error": "Business ID is required"}), 400
@@ -926,7 +932,7 @@ def api_create_business():
 
     database.add_business(
         business_id, name, business_type, services, working_days,
-        start_time, end_time, slot_duration, timezone, contact_email
+        start_time, end_time, slot_duration, timezone, contact_email, location
     )
     if client_password:
         database.set_client_password(business_id, client_password)
