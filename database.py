@@ -89,23 +89,24 @@ def create_tables():
 
 def add_business(business_id, name, business_type, services, working_days,
                  start_time, end_time, slot_duration=30,
-                 timezone="Asia/Kolkata", contact_email=""):
+                 timezone="Asia/Kolkata", contact_email="", location=""):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO businesses
                 (id, name, type, services, working_days, start_time, end_time,
-                 slot_duration, timezone, contact_email)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 slot_duration, timezone, contact_email, location)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     name=EXCLUDED.name, type=EXCLUDED.type,
                     services=EXCLUDED.services, working_days=EXCLUDED.working_days,
                     start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time,
                     slot_duration=EXCLUDED.slot_duration, timezone=EXCLUDED.timezone,
-                    contact_email=EXCLUDED.contact_email
+                    contact_email=EXCLUDED.contact_email,
+                    location=EXCLUDED.location
             """, (business_id, name, business_type, json.dumps(services),
                   json.dumps(working_days), start_time, end_time,
-                  slot_duration, timezone, contact_email))
+                  slot_duration, timezone, contact_email, location))
         conn.commit()
 
 
@@ -188,7 +189,7 @@ def set_call_mode(business_id, call_mode, twilio_number=""):
 
 
 def migrate_call_mode_columns():
-    """Add call_mode and twilio_number columns if they don't exist."""
+    """Add call_mode, twilio_number, and location columns if they don't exist."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -198,6 +199,10 @@ def migrate_call_mode_columns():
             cur.execute("""
                 ALTER TABLE businesses
                 ADD COLUMN IF NOT EXISTS twilio_number TEXT DEFAULT ''
+            """)
+            cur.execute("""
+                ALTER TABLE businesses
+                ADD COLUMN IF NOT EXISTS location TEXT DEFAULT ''
             """)
         conn.commit()
 

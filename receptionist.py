@@ -31,12 +31,14 @@ class Receptionist:
         self.lang         = lang   # "en" or "hi"
         self.state = "greeting"
         self.collected = {
-            "intent":  None,
-            "service": None,
-            "date":    None,
-            "time":    None,
-            "name":    None,
-            "phone":   None,
+            "intent":   None,
+            "service":  None,
+            "date":     None,
+            "time":     None,
+            "name":     None,
+            "phone":    None,
+            "car_type": None,   # "new" or "used" — car showroom only
+            "year_pref": None,  # preferred manufacture year — car showroom only
         }
         self.available_slots = []
 
@@ -177,6 +179,8 @@ class Receptionist:
             return self._r("cancel_confirmed", booking_id=_bid)
 
         if c["intent"] in ("book", "reschedule"):
+            if self._is_car_showroom():
+                return self._handle_car_inquiry()
             return self._handle_booking()
 
         return self._r("no_intent")
@@ -295,6 +299,174 @@ class Receptionist:
             time    = c["time"],
         )
 
+    # ── Car showroom helpers ──────────────────────────────────────────────
+
+    def _is_car_showroom(self):
+        return self.business.get("type", "").lower() == "carshowroom"
+
+    def _handle_car_inquiry(self):
+        c = self.collected
+        b = self.business
+        location = b.get("location", "our showroom")
+        days = brain.summarize_days(b["working_days"])
+
+        # Step 1: New or Used?
+        if not c["car_type"]:
+            return brain.reply("ask_car_type", lang=self.lang)
+
+        # Step 2: Which model?
+        if not c["service"]:
+            return brain.reply(
+                "ask_car_model", lang=self.lang,
+                services=", ".join(b["services"])
+            )
+
+        # Step 3: Year preference (only for used cars)
+        if c["car_type"] == "used" and not c["year_pref"]:
+            return brain.reply("ask_year_pref", lang=self.lang)
+
+        # Step 4: Give location + ask for test drive date
+        if not c["date"]:
+            return brain.reply(
+                "car_location", lang=self.lang,
+                location=location, days=days
+            )
+
+        # Step 5: Fetch and show slots
+        if not self.available_slots:
+            self.available_slots = slot_manager.get_available_slots(
+                self.business_id, c["date"])
+
+        if not self.available_slots:
+            bad_date = _day_name(c["date"])
+            c["date"] = None
+            return self._r("no_slots", date=bad_date)
+
+        if not c["time"]:
+            return self._r(
+                "show_slots",
+                date=_day_name(c["date"]),
+                slots=brain.summarize_slots(self.available_slots),
+            )
+
+        matched = slot_manager.normalize_time(c["time"], self.available_slots)
+        if not matched:
+            c["time"] = None
+            return self._r(
+                "slot_unavailable",
+                slots=brain.summarize_slots(self.available_slots),
+            )
+        c["time"] = matched
+
+        # Step 6: Name
+        if not c["name"]:
+            return self._r("ask_name")
+
+        # Step 7: Phone
+        if not c["phone"]:
+            if self.caller_phone:
+                c["phone"] = self.caller_phone
+            else:
+                return self._r("ask_phone")
+
+        # Step 8: Confirmation
+        if self.state != "confirming":
+            self.state = "confirming"
+            return self._r(
+                "confirm",
+                name=c["name"],
+                service=f"{c['service']} ({c['car_type'].title()}"
+                        + (f", {c['year_pref']}" if c.get("year_pref") else "") + ")",
+                date=_day_name(c["date"]),
+                time=c["time"],
+            )
+
+        # Step 9: Yes / No
+        last_words = getattr(self, "_last_user", "").lower()
+        YES_WORDS = ["yes", "correct", "confirm", "sure", "right", "yep", "yeah",
+                     "ok", "okay", "perfect", "go ahead", "हाँ", "हां", "हा", "जी",
+                     "bilkul", "बिल्कुल", "haan", "han"]
+        NO_WORDS  = ["no", "nope", "wrong", "incorrect", "change", "different",
+                     "नहीं", "नही", "गलत"]
+
+        if any(w in last_words for w in YES_WORDS):
+            return self._finalise_car()
+
+        if any(w in last_words for w in NO_WORDS):
+            self.state = "booking"
+            return self._r("what_to_change")
+
+        return self._r(
+            "reconfirm",
+            name=c["name"],
+            service=c["service"],
+            date=_day_name(c["date"]),
+            time=c["time"],
+        )
+
+    def _finalise_car(self):
+        c = self.collected
+        b = self.business
+        location = b.get("location", "our showroom")
+        service_label = (
+            f"{c['service']} ({c['car_type'].title()}"
+            + (f", {c['year_pref']}" if c.get("year_pref") else "") + ")"
+        )
+        try:
+            booking_id = slot_manager.book_appointment(
+                self.business_id,
+                c["date"], c["time"],
+                c["name"], c["phone"], "",
+                service_label,
+            )
+        except Exception as e:
+            print(f"[_finalise_car] error: {e}")
+            self.state = "done"
+            return self._r("unclear")
+
+        if booking_id:
+            self.state = "done"
+            def _notify():
+                notifier.notify_owner(
+                    business_name=b["name"],
+                    owner_email=b.get("contact_email", ""),
+                    customer_name=c["name"],
+                    customer_phone=c["phone"],
+                    service=service_label,
+                    date_str=_day_name(c["date"]),
+                    time_str=c["time"],
+                    booking_id=booking_id,
+                )
+                notifier.send_sms_confirmation(
+                    to_phone=self.caller_phone,
+                    business_name=b["name"],
+                    customer_name=c["name"],
+                    service=service_label,
+                    date_str=_day_name(c["date"]),
+                    time_str=c["time"],
+                    booking_id=booking_id,
+                )
+            threading.Thread(target=_notify, daemon=True).start()
+            return brain.reply(
+                "car_booked", lang=self.lang,
+                id=booking_id,
+                name=c["name"],
+                service=service_label,
+                date=_day_name(c["date"]),
+                time=c["time"],
+                location=location,
+            )
+        else:
+            c["time"] = None
+            self.available_slots = slot_manager.get_available_slots(
+                self.business_id, c["date"])
+            self.state = "booking"
+            return self._r(
+                "slot_taken",
+                slots=brain.summarize_slots(self.available_slots)
+                      if self.available_slots else "none available",
+            )
+
     def _finalise(self):
         c = self.collected
         try:
@@ -380,6 +552,20 @@ class Receptionist:
             c["time"] = extracted["time"]
         if extracted.get("phone"):
             c["phone"] = extracted["phone"]
+
+        # Car showroom — extract car_type and year_pref from speech
+        if self._is_car_showroom():
+            txt_lower = user_text.lower()
+            if not c["car_type"]:
+                if any(w in txt_lower for w in ["new", "brand new", "fresh", "नई", "नया"]):
+                    c["car_type"] = "new"
+                elif any(w in txt_lower for w in ["used", "old", "second hand", "pre-owned",
+                                                   "secondhand", "purana", "पुरानी", "पुराना"]):
+                    c["car_type"] = "used"
+            if not c["year_pref"] and c["car_type"] == "used":
+                year_match = re.search(r"\b(20\d{2})\b", user_text)
+                if year_match:
+                    c["year_pref"] = year_match.group(1)
 
         response = self._route()
         self._last_response = response

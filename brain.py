@@ -252,6 +252,33 @@ TEMPLATES = {
         "Sure, happy to update that! Just tell me what you'd like to change.",
         "Of course! What needs to be different — name, date, or time?",
     ],
+
+    # ── Car showroom specific ─────────────────────────────────────────────
+    "ask_car_type": [
+        "Are you looking for a New car or a Used car today?",
+        "Great! Are you interested in a brand new car or a pre-owned one?",
+        "Sure! Just to help you better — are you after a New or a Used car?",
+    ],
+    "ask_car_model": [
+        "Perfect! We have {services} available. Which model interests you?",
+        "Great choice! Our lineup includes {services}. Which one would you like to explore?",
+        "Sure! We carry {services}. Which model are you interested in?",
+    ],
+    "ask_year_pref": [
+        "Got it! What year range are you looking for? For example, 2019 to 2022?",
+        "Sure! Any preference on the manufacturing year? Like 2018 onwards, or a specific range?",
+        "What year would you prefer? We can filter by manufacture year for you.",
+    ],
+    "car_location": [
+        "Our showroom is located at {location}. Let me now book a test drive slot for you — which day works?",
+        "You can visit us at {location}. Now let's fix a test drive — we're open {days}. Which day suits you?",
+        "We're at {location}. Let me get a test drive booked for you — which day works best?",
+    ],
+    "car_booked": [
+        "All set, {name}! Your test drive for the {service} is booked for {date} at {time}. We're at {location}. Booking ID: {id}. See you there!",
+        "Done! {name}, test drive confirmed — {service}, {date} at {time}. Visit us at {location}. Reference: {id}.",
+        "You're booked, {name}! {service} test drive on {date} at {time}. Our showroom: {location}. ID: {id}. Looking forward to seeing you!",
+    ],
 }
 
 
