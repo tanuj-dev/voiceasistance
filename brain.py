@@ -119,6 +119,21 @@ TEMPLATES_HI = {
         "ज़रूर! बताइए क्या बदलना है।",
         "बिल्कुल! नाम, तारीख, या समय — क्या अपडेट करूँ?",
     ],
+    "reschedule_ask_phone": [
+        "ज़रूर! बुकिंग वाला फ़ोन नंबर बताइए।",
+        "बिल्कुल, रीशेड्यूल करते हैं! बुकिंग किस नंबर पर थी?",
+        "कोई बात नहीं! बुकिंग का फ़ोन नंबर क्या था?",
+    ],
+    "reschedule_found": [
+        "मिल गई! आपकी {service} बुकिंग {old_date} को {old_time} बजे है। नई तारीख बताइए।",
+        "{service} — {old_date}, {old_time} बजे। कब बदलनी है?",
+        "बुकिंग मिली — {service}, {old_date}, {old_time} बजे। नया दिन बताइए।",
+    ],
+    "reschedule_confirmed": [
+        "हो गया! {service} अब {date} को {time} बजे के लिए रीशेड्यूल हो गई। नई ID: {id}। मिलते हैं!",
+        "बढ़िया! {service} को {date}, {time} बजे पर ले जाया गया। Reference: {id}।",
+        "{service} रीशेड्यूल हो गई — {date}, {time} बजे। नई बुकिंग ID: {id}। धन्यवाद!",
+    ],
 }
 
 TEMPLATES = {
@@ -251,6 +266,24 @@ TEMPLATES = {
         "No problem! What would you like to change — the name, date, time, or service?",
         "Sure, happy to update that! Just tell me what you'd like to change.",
         "Of course! What needs to be different — name, date, or time?",
+    ],
+    "reschedule_ask_phone": [
+        "Sure, I can help you reschedule! What's the phone number linked to your {booking_word}?",
+        "Happy to reschedule that! Could you give me the phone number on your {booking_word}?",
+        "Of course! What phone number was used when you booked?",
+        "No problem! Just give me the phone number on the {booking_word} and I'll find it.",
+    ],
+    "reschedule_found": [
+        "I found your {booking_word} — {service} on {old_date} at {old_time}. What new date would you like to move it to?",
+        "Got it! Your {service} is booked for {old_date} at {old_time}. When would you like to reschedule?",
+        "Found it! You have {service} on {old_date} at {old_time}. Which new date works for you?",
+        "Here it is — {service} on {old_date} at {old_time}. Just tell me your new preferred date!",
+    ],
+    "reschedule_confirmed": [
+        "All rescheduled! Your {service} has been moved to {date} at {time}. New booking ID: {id}. See you then!",
+        "Done! {service} is now rebooked for {date} at {time}. Your new reference is {id}. Take care!",
+        "Sorted! Your {booking_word} has been moved to {date} at {time}. New ID: {id}. Looking forward to seeing you!",
+        "You're all set! {service} rescheduled to {date} at {time}. New booking ID: {id}. Have a great day!",
     ],
 
     # ── Car showroom specific ─────────────────────────────────────────────

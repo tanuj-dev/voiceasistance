@@ -37,8 +37,9 @@ class Receptionist:
             "time":     None,
             "name":     None,
             "phone":    None,
-            "car_type": None,   # "new" or "used" — car showroom only
-            "year_pref": None,  # preferred manufacture year — car showroom only
+            "car_type": None,              # "new" or "used" — car showroom only
+            "year_pref": None,             # preferred manufacture year — car showroom only
+            "reschedule_old_booking": None, # stores the old booking dict during reschedule flow
         }
         self.available_slots = []
 
@@ -178,10 +179,15 @@ class Receptionist:
             threading.Thread(target=_notify_cancel, daemon=True).start()
             return self._r("cancel_confirmed", booking_id=_bid)
 
-        if c["intent"] in ("book", "reschedule"):
+        if c["intent"] == "book":
             if self._is_car_showroom():
                 return self._handle_car_inquiry()
             return self._handle_booking()
+
+        if c["intent"] == "reschedule":
+            if self._is_car_showroom():
+                return self._handle_car_inquiry()
+            return self._handle_reschedule()
 
         return self._r("no_intent")
 
@@ -298,6 +304,185 @@ class Receptionist:
             date    = _day_name(c["date"]),
             time    = c["time"],
         )
+
+    # ── Reschedule flow ───────────────────────────────────────────────────
+
+    def _handle_reschedule(self):
+        c = self.collected
+
+        # Step 1: need phone to look up existing booking
+        if not c["phone"]:
+            if self.caller_phone:
+                c["phone"] = self.caller_phone
+            else:
+                return self._r("reschedule_ask_phone")
+
+        # Step 2: find the old booking (once)
+        if not c["reschedule_old_booking"]:
+            old = database.get_booking_by_phone(self.business_id, c["phone"])
+            if not old:
+                return self._r("no_booking_found")
+            c["reschedule_old_booking"] = old
+            # Parse old appointment datetime for display
+            apt = old.get("appointment_datetime", "")
+            try:
+                dt = datetime.strptime(apt, "%Y-%m-%d %H:%M")
+                old_date = dt.strftime("%A, %B %d")
+                old_time = dt.strftime("%I:%M %p")
+            except Exception:
+                parts = apt.split(" ")
+                old_date = parts[0] if parts else apt
+                old_time = parts[1] if len(parts) > 1 else ""
+            # Copy service from old booking so we don't re-ask
+            c["service"] = old.get("service", "")
+            return self._r(
+                "reschedule_found",
+                service=c["service"],
+                old_date=old_date,
+                old_time=old_time,
+            )
+
+        # Step 3: new date
+        if not c["date"]:
+            return self._r("ask_date")
+
+        # Step 4: fetch slots for new date
+        if not self.available_slots:
+            self.available_slots = slot_manager.get_available_slots(
+                self.business_id, c["date"])
+
+        if not self.available_slots:
+            bad_date = _day_name(c["date"])
+            c["date"] = None
+            return self._r("no_slots", date=bad_date)
+
+        # Step 5: new time
+        if not c["time"]:
+            return self._r(
+                "show_slots",
+                date=_day_name(c["date"]),
+                slots=brain.summarize_slots(self.available_slots),
+            )
+
+        matched = slot_manager.normalize_time(c["time"], self.available_slots)
+        if not matched:
+            c["time"] = None
+            return self._r(
+                "slot_unavailable",
+                slots=brain.summarize_slots(self.available_slots),
+            )
+        c["time"] = matched
+
+        # Step 6: ensure name (reuse from old booking if available)
+        if not c["name"]:
+            old_name = c["reschedule_old_booking"].get("customer_name", "")
+            if old_name:
+                c["name"] = old_name
+            else:
+                return self._r("ask_name")
+
+        # Step 7: confirm new slot
+        if self.state != "confirming":
+            self.state = "confirming"
+            return self._r(
+                "confirm",
+                name=c["name"],
+                service=c["service"],
+                date=_day_name(c["date"]),
+                time=c["time"],
+            )
+
+        # Step 8: yes / no
+        last_words = getattr(self, "_last_user", "").lower()
+        YES_WORDS = [
+            "yes", "correct", "confirm", "sure", "right", "yep", "yeah",
+            "ok", "okay", "perfect", "go ahead",
+            "हाँ", "हां", "हा", "जी", "जी हाँ", "bilkul", "बिल्कुल",
+            "haan", "han", "ha ",
+        ]
+        NO_WORDS = [
+            "no", "nope", "wrong", "incorrect", "change", "different",
+            "नहीं", "नही", "गलत",
+        ]
+
+        if any(w in last_words for w in YES_WORDS):
+            return self._finalise_reschedule()
+
+        if any(w in last_words for w in NO_WORDS):
+            self.state = "booking"
+            c["date"] = None
+            c["time"] = None
+            self.available_slots = []
+            return self._r("what_to_change")
+
+        return self._r(
+            "reconfirm",
+            name=c["name"],
+            service=c["service"],
+            date=_day_name(c["date"]),
+            time=c["time"],
+        )
+
+    def _finalise_reschedule(self):
+        c = self.collected
+        old = c["reschedule_old_booking"]
+        service = old.get("service", c.get("service", "appointment"))
+
+        try:
+            booking_id = slot_manager.book_appointment(
+                self.business_id,
+                c["date"], c["time"],
+                c["name"], c["phone"], "",
+                service,
+            )
+        except Exception as e:
+            print(f"[_finalise_reschedule] error: {e}")
+            self.state = "done"
+            return self._r("unclear")
+
+        if booking_id:
+            # Cancel the old booking now that new one is confirmed
+            database.cancel_booking(old["id"])
+            self.state = "done"
+            def _notify():
+                notifier.notify_owner(
+                    business_name  = self.business["name"],
+                    owner_email    = self.business.get("contact_email", ""),
+                    customer_name  = c["name"],
+                    customer_phone = c["phone"],
+                    service        = f"{service} (Rescheduled from #{old['id']})",
+                    date_str       = _day_name(c["date"]),
+                    time_str       = c["time"],
+                    booking_id     = booking_id,
+                )
+                notifier.send_sms_confirmation(
+                    to_phone      = self.caller_phone,
+                    business_name = self.business["name"],
+                    customer_name = c["name"],
+                    service       = f"{service} (Rescheduled)",
+                    date_str      = _day_name(c["date"]),
+                    time_str      = c["time"],
+                    booking_id    = booking_id,
+                )
+            threading.Thread(target=_notify, daemon=True).start()
+            return self._r(
+                "reschedule_confirmed",
+                service = service,
+                date    = _day_name(c["date"]),
+                time    = c["time"],
+                id      = booking_id,
+            )
+        else:
+            # Slot was taken — ask for another time
+            c["time"] = None
+            self.available_slots = slot_manager.get_available_slots(
+                self.business_id, c["date"])
+            self.state = "booking"
+            return self._r(
+                "slot_taken",
+                slots = brain.summarize_slots(self.available_slots)
+                        if self.available_slots else "none available",
+            )
 
     # ── Car showroom helpers ──────────────────────────────────────────────
 
