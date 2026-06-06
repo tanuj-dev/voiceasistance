@@ -48,29 +48,13 @@ Everything that is pending, prioritized by what blocks real client delivery firs
 ## 🟡 Priority 2 — Needed for Good Client Experience
 
 ### 5. SMS / Email Confirmation After Booking
-- **Why:** Customer should get a confirmation message after the AI books their appointment.
-- **What to do:**
-  - Email: Gmail SMTP already in `notifier.py` — just needs real credentials in `.env`
-  - SMS: Integrate Twilio SMS or Fast2SMS (Indian SMS, cheaper)
-  - Trigger `notifier.py` at the end of `_finalise()` in `receptionist.py`
-- **Status:** ⚠️ Email code exists but not connected. SMS not started.
+- **Status:** ✅ Done — `_finalise()` fires `notifier.notify_owner()` (email to owner) + `notifier.send_sms_confirmation()` (SMS to customer) in a background thread. `.env` has real Gmail + Twilio credentials.
 
 ### 6. Booking Cancellation Flow
-- **Why:** The AI detects "cancel" intent but only asks for name + date — it never actually cancels in the DB.
-- **What to do:**
-  - In `receptionist.py → _route()`, add cancellation logic under `intent == "cancel"`
-  - Fetch booking by name + date from DB
-  - Update booking status to `cancelled` in `database.py`
-  - Confirm cancellation to caller
-- **Status:** ⚠️ Partially done (intent detected, DB update missing)
+- **Status:** ✅ Done — `_route()` handles cancel: asks for phone, looks up booking via `database.get_booking_by_phone()`, calls `database.cancel_booking()`, confirms to caller, fires owner email + customer SMS in background.
 
 ### 7. Reschedule Flow
-- **Why:** Callers say "I want to reschedule" — currently not handled beyond detecting intent.
-- **What to do:**
-  - Find the existing booking (by name + date)
-  - Cancel it (free up the old slot)
-  - Run the normal booking flow for a new date/time
-- **Status:** ❌ Not started
+- **Status:** ✅ Done (commit `5b2353b`) — Full `_handle_reschedule()` + `_finalise_reschedule()` added. Flow: asks phone → finds old booking → shows old details → collects new date/time → confirms → cancels old + creates new atomically → owner email + customer SMS fired in background.
 
 ### 8. Admin Dashboard (Web UI)
 - **Why:** Salon owner needs to see their bookings without calling you.
@@ -132,8 +116,8 @@ Everything that is pending, prioritized by what blocks real client delivery firs
 
 | Item | What to Fix |
 |---|---|
-| Push latest code to GitHub | `git push` to tanuj-dev/voiceasistance — README + browser_phone fix not pushed yet |
-| `requirements.txt` is incomplete | Missing `flask-cors`, `reportlab` — run `pip freeze > requirements.txt` |
+| Push latest code to GitHub | ✅ Done — all code pushed to tanuj-dev/voiceasistance |
+| `requirements.txt` is incomplete | ✅ Done — has flask-cors, reportlab, psycopg2-binary, groq, gunicorn |
 | No error logging | Add Python `logging` module — write errors to a log file so you can debug client issues |
 | `.env` has real credentials | Should never be committed — double-check `.gitignore` has `.env` |
 | `notifier.py` silently skips | Add a visible warning if email is not configured so you notice during setup |

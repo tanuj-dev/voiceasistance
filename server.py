@@ -966,6 +966,90 @@ def api_cancel_booking(booking_id):
     return jsonify({"success": True})
 
 
+# ── Razorpay ─────────────────────────────────────────────────────────────
+
+import razorpay as _razorpay
+import uuid
+
+def _rzp_client():
+    return _razorpay.Client(auth=(
+        os.getenv("RAZORPAY_KEY_ID"),
+        os.getenv("RAZORPAY_KEY_SECRET"),
+    ))
+
+PLANS = {
+    "starter": {"name": "RingReply Starter", "amount": 299900},   # ₹2,999
+    "growth":  {"name": "RingReply Growth",  "amount": 499900},   # ₹4,999
+    "pro":     {"name": "RingReply Pro",     "amount": 699900},   # ₹6,999
+}
+
+@app.route("/razorpay/create-order", methods=["POST"])
+def razorpay_create_order():
+    data = request.get_json(force=True)
+    plan_id = data.get("plan", "starter").lower()
+    plan = PLANS.get(plan_id)
+    if not plan:
+        return jsonify({"error": "Invalid plan"}), 400
+
+    try:
+        client = _rzp_client()
+        order = client.order.create({
+            "amount": plan["amount"],
+            "currency": "INR",
+            "receipt": f"rr_{plan_id}_{uuid.uuid4().hex[:8]}",
+            "notes": {"plan": plan_id, "product": "RingReply"},
+        })
+        return jsonify({
+            "order_id": order["id"],
+            "amount":   order["amount"],
+            "currency": order["currency"],
+            "key":      os.getenv("RAZORPAY_KEY_ID"),
+            "plan_name": plan["name"],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/razorpay/webhook", methods=["POST"])
+def razorpay_webhook():
+    """Razorpay sends payment confirmation here."""
+    webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+    payload = request.get_data()
+    sig = request.headers.get("X-Razorpay-Signature", "")
+
+    if webhook_secret:
+        expected = hmac.new(webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return jsonify({"error": "Invalid signature"}), 400
+
+    event = request.get_json(force=True)
+    if event.get("event") == "payment.captured":
+        payment = event["payload"]["payment"]["entity"]
+        name    = payment.get("notes", {}).get("name", "Customer")
+        email   = payment.get("email", "")
+        phone   = payment.get("contact", "")
+        plan    = payment.get("notes", {}).get("plan", "")
+        amount  = payment.get("amount", 0) // 100
+
+        # Notify owner via email
+        try:
+            import notifier as _notifier
+            _notifier.notify_owner(
+                owner_email=os.getenv("GMAIL_USER"),
+                customer_name=name,
+                customer_phone=phone,
+                service=f"RingReply {plan.title()} Plan",
+                date="Immediate",
+                time_slot="Now",
+                business_name="RingReply",
+                extra=f"Payment of ₹{amount} received. Email: {email}",
+            )
+        except Exception:
+            pass
+
+    return jsonify({"status": "ok"})
+
+
 if __name__ == "__main__":
     database.create_tables()
     port = int(os.getenv("PORT", 5000))
