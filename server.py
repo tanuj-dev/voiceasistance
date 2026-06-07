@@ -21,12 +21,43 @@ import database
 from receptionist import Receptionist
 from functools import wraps
 import hmac, hashlib, json, base64, re
+from collections import defaultdict
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production-please")
-CORS(app, supports_credentials=True)
+
+# ── CORS — only allow our own frontend ───────────────────────────────────
+ALLOWED_ORIGINS = [
+    "https://ringreply.in",
+    "https://www.ringreply.in",
+    "http://localhost:3000",   # local dev only
+]
+CORS(app, supports_credentials=True, origins=ALLOWED_ORIGINS)
+
+# ── Simple in-memory rate limiter ────────────────────────────────────────
+_rate_store: dict = defaultdict(list)
+
+def _rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
+    """Return True if request is allowed, False if rate limited."""
+    now = time.time()
+    timestamps = _rate_store[key]
+    # Remove old timestamps outside the window
+    _rate_store[key] = [t for t in timestamps if now - t < window_seconds]
+    if len(_rate_store[key]) >= max_requests:
+        return False
+    _rate_store[key].append(now)
+    return True
+
+# ── Security headers ─────────────────────────────────────────────────────
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self)"
+    return response
 
 
 # ── Token utilities ──────────────────────────────────────────────────────
@@ -650,32 +681,17 @@ def meta_webhook_message():
 
 @app.route("/health", methods=["GET"])
 def health():
-    businesses = database.get_all_businesses()
-    return {
-        "status": "running",
-        "active_calls": len(active_calls),
-        "businesses": len(businesses)
-    }
-
-
-@app.route("/debug/booking", methods=["GET"])
-def debug_booking():
-    """Test the full booking flow and return any error."""
-    try:
-        from receptionist import Receptionist
-        import brain, slot_manager
-        r = Receptionist("tanuj_dental", "+11234567890")
-        step1 = r.process("I want to book an appointment")
-        step2 = r.process("cleaning")
-        step3 = r.process("Monday")
-        return {"step1": step1, "step2": step2, "step3": step3, "ok": True}
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}, 500
+    """Minimal health check — no internal details exposed."""
+    return {"status": "ok"}
 
 
 @app.route("/token", methods=["GET"])
 def token():
     """Generate Twilio Access Token for browser-based calling."""
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+    if not _rate_limit(f"token:{ip}", max_requests=10, window_seconds=60):
+        return jsonify({"error": "Too many requests"}), 429
+
     account_sid    = os.getenv("TWILIO_ACCOUNT_SID")
     api_key_sid    = os.getenv("TWILIO_API_KEY_SID")
     api_key_secret = os.getenv("TWILIO_API_KEY_SECRET")
@@ -742,6 +758,9 @@ def admin_dashboard():
 
 @app.route("/admin/api/login", methods=["POST"])
 def api_admin_login():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+    if not _rate_limit(f"admin_login:{ip}", max_requests=5, window_seconds=60):
+        return jsonify({"error": "Too many attempts. Try again in a minute."}), 429
     data = request.get_json() or {}
     pwd  = data.get("password", "")
     if pwd == os.getenv("ADMIN_PASSWORD", "admin123"):
@@ -754,6 +773,9 @@ def api_admin_login():
 
 @app.route("/client/api/login", methods=["POST"])
 def api_client_login():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+    if not _rate_limit(f"client_login:{ip}", max_requests=5, window_seconds=60):
+        return jsonify({"error": "Too many attempts. Try again in a minute."}), 429
     data        = request.get_json() or {}
     business_id = data.get("business_id", "").strip()
     password    = data.get("password", "").strip()
@@ -1017,10 +1039,12 @@ def razorpay_webhook():
     payload = request.get_data()
     sig = request.headers.get("X-Razorpay-Signature", "")
 
-    if webhook_secret:
-        expected = hmac.new(webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, sig):
-            return jsonify({"error": "Invalid signature"}), 400
+    # Always verify signature — reject if secret not configured
+    if not webhook_secret:
+        return jsonify({"error": "Webhook not configured"}), 500
+    expected = hmac.new(webhook_secret.encode(), payload, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        return jsonify({"error": "Invalid signature"}), 400
 
     event = request.get_json(force=True)
     if event.get("event") == "payment.captured":
